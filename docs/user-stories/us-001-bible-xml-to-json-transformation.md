@@ -8,9 +8,9 @@
 
 ## 🎯 Acceptance Criteria
 
-- [ ] **XML Parsing:** The script must successfully load the `cesDoc` XML and navigate the hierarchy (`text > body > div[type=book] > div[type=chapter] > seg`).
-- [ ] **ID Preservation:** Each segment must retain its unique ID (e.g., `b.GEN.1.1`) to serve as a primary key.
-- [ ] **Data Structure:** The output must be an array of objects following this schema:
+- ✅ **XML Parsing:** The script must successfully load the `cesDoc` XML and navigate the hierarchy (`text > body > div[type=book] > div[type=chapter] > seg`).
+- ✅ **ID Preservation:** Each segment must retain its unique ID (e.g., `b.GEN.1.1`) to serve as a primary key.
+- ✅ **Data Structure:** The output must be an array of objects following this schema:
   ```typescript
   {
     "id": string;        // e.g., "b.GEN.1.1"
@@ -20,13 +20,13 @@
     "text": string;      // e.g., "Au commencement..."
     "metadata": {
        "testament": "Old" | "New",
-       "version": "LSG"
+       "version": "BIBLE(Fr)"
     }
   }
   ```
-- [ ] Sanitization: Remove any leading/trailing whitespaces and handle XML entities (like `&amp;`d) within the verse text.
+- ✅ Sanitization: Remove any leading/trailing whitespaces and handle XML entities (like `&amp;`d) within the verse text.
 
-- [ ] Error Handling: The parser should log errors for malformed segments but continue processing the rest of the document.
+- ✅ Error Handling: The parser should log errors for malformed segments but continue processing the rest of the document.
 
 ## 🛠️ Technical Notes
 - Tooling: Use fast-xml-parser for high-performance parsing in Node.js/TypeScript.
@@ -54,4 +54,4 @@ new Document({
 
 **Estimation**: 3-5 Story Points
 
-**Status**: ⏳ in-progress
+**Status**: ✅ done

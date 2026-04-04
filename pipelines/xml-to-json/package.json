@@ -1,0 +1,20 @@
+{
+  "name": "xml-to-json",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "ingest": "ts-node src/ingest-bible.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.5.10"
+  }
+}
