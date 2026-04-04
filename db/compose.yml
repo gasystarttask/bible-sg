@@ -1,0 +1,16 @@
+services:
+  documentdb:
+    image: ghcr.io/documentdb/documentdb/documentdb-local:latest
+    container_name: docdb
+    ports:
+      - "10260:10260"
+    environment:
+      - USERNAME=admin
+      - PASSWORD=password
+      - SKIP_INIT_DATA=true
+      - INIT_DATA_PATH=/init_doc_db.d
+    volumes:
+      - docdb-data:/docdb-data
+      - ./scripts:/init_doc_db.d
+volumes:
+  docdb-data: {}
