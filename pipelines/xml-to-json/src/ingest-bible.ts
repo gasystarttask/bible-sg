@@ -161,7 +161,7 @@ function parseBibleXml(xmlContent: string): Verse[] {
             chapter,
             verse,
             text,
-            metadata: { testament, version: "BIBLE(Fr)" },
+            metadata: { testament, version: "LSG" },
           });
         } catch (err) {
           console.error(`[ERROR] Skipping malformed segment:`, err);

@@ -1,4 +1,17 @@
-db = db.getSiblingDB('books');
-db.createCollection('verses').catch(() => {});
-db.createCollection('entities').catch(() => {});
-db.createCollection('relations').catch(() => {});
+db = db.getSiblingDB('bible_sg');
+db.createCollection('verses');
+db.createCollection('entities');
+db.createCollection('relations');
+
+db.runCommand({
+  createIndexes: "verses",
+  indexes: [{
+    key: { embedding: "cosmosSearch" },
+    name: "vector_idx",
+    cosmosSearchOptions: {
+      kind: "vector-hnsw",
+      similarity: "COS",
+      dimensions: 1536
+    }
+  }]
+});

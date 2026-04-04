@@ -1,4 +1,3 @@
-
 # How To
 
 ## Run Database Locally with Docker Compose
@@ -40,3 +39,31 @@ This will:
 - Preserve UTF-8 encoding for French characters (é, à, œ, etc.)
 
 The output file is ready to be loaded into the database or used with LangChain for RAG embeddings.
+
+## Vectorize Bible & Store in Database
+
+To generate OpenAI embeddings for each verse and populate DocumentDB:
+
+```bash
+cd pipelines/xml-to-json
+export DATABASE_URL="mongodb://localhost:27017"
+export OPENAI_API_KEY="sk-your-key-here"
+npm run vectorize
+```
+
+This will:
+- Load verses from `data/processed_bible.json`
+- Generate embeddings using `text-embedding-3-small` (1536 dimensions)
+- Process verses in batches of 100 to optimize API calls
+- Store vectors in the `bible_sg.verses` collection with metadata
+- Create HNSW vector index for sub-200ms semantic search
+- Skip duplicates automatically (idempotent operation)
+
+**Environment Variables:**
+- `DATABASE_URL` - MongoDB connection string (default: `mongodb://localhost:27017`)
+- `OPENAI_API_KEY` - OpenAI API key (required)
+
+**Output:**
+- ~31,102 documents in MongoDB with embeddings
+- Dimensions: 1536 floats per verse
+- Indexed for fast semantic similarity search

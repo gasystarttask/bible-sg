@@ -7,7 +7,7 @@ This roadmap outlines the development of a semantic search and chat engine for t
 ## 🏗️ Phase 1: Data Infrastructure & Vectorization
 *Focus: Turning raw XML into a searchable vector database.*
 
-- 📥 **Project Scaffolding** (Next.js 14+, Tailwind, TypeScript) `done`
+- 📥 **Project Scaffolding** (Next.js 14+, Tailwind, TypeScript) `to-do`
 - ✅ **XML Parser Service** (Transforming CES XML to JSON segments) `done`
 - ✅ **DocumentDB Connection** (Setting up pg_documentdb / pgvector) `done`
 - ⏳ **Vector Ingestion Pipeline** (OpenAI `text-embedding-3-small` + LangChain) `in-progress`

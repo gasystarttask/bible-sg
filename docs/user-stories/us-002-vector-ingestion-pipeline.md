@@ -8,11 +8,11 @@
 
 ## 🎯 Acceptance Criteria
 
-- [ ] **Embedding Generation:** Use OpenAI's `text-embedding-3-small` (1536 dimensions) to vectorize the `text` field of each JSON segment.
-- [ ] **Batch Processing:** Implement batching (e.g., 100 verses per request) to optimize API calls and avoid rate limits.
-- [ ] **DocumentDB Integration:** Store the resulting vectors in the `verses` collection using the `vector` type (provided by the underlying `pgvector` extension).
-- [ ] **Metadata Persistence:** Ensure all metadata (book, chapter, verse ID) is stored alongside the vector for filtering purposes.
-- [ ] **Idempotency:** The script should be re-runnable without creating duplicate entries (use the verse ID as a unique constraint).
+- ✅ **Embedding Generation:** Use OpenAI's `text-embedding-3-small` (1536 dimensions) to vectorize the `text` field of each JSON segment.
+- ✅ **Batch Processing:** Implement batching (e.g., 100 verses per request) to optimize API calls and avoid rate limits.
+- ✅ **DocumentDB Integration:** Store the resulting vectors in the `verses` collection using the `vector` type (provided by the underlying `pgvector` extension).
+- ✅ **Metadata Persistence:** Ensure all metadata (book, chapter, verse ID) is stored alongside the vector for filtering purposes.
+- ✅ **Idempotency:** The script should be re-runnable without creating duplicate entries (use the verse ID as a unique constraint).
 
 ---
 
@@ -37,4 +37,4 @@
 
 **Priority:** High (Blocker for Phase 3)  
 **Estimation:** 5-8 Story Points  
-**Status:** 📥 `to-do`
+**Status:** ✅ `done`
