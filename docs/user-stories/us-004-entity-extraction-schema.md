@@ -8,10 +8,10 @@
 
 ## 🎯 Acceptance Criteria
 
-- [ ] **Schema Definition:** Create Zod schemas for `Entity` (Person, Location, Object, Event) and `Relation` (Subject, Predicate, Object).
-- [ ] **Type Safety:** Export TypeScript types derived from these Zod schemas to be used across the application.
-- [ ] **Contextual Metadata:** The schema must include a field for the source verse ID (e.g., `b.GEN.1.1`) to maintain traceability.
-- [ ] **Validation Logic:** Implement a validation function that catches and logs malformed LLM responses without crashing the extraction pipeline.
+- [x] **Schema Definition:** Create Zod schemas for `Entity` (Person, Location, Object, Event) and `Relation` (Subject, Predicate, Object).
+- [x] **Type Safety:** Export TypeScript types derived from these Zod schemas to be used across the application.
+- [x] **Contextual Metadata:** The schema must include a field for the source verse ID (e.g., `b.GEN.1.1`) to maintain traceability.
+- [x] **Validation Logic:** Implement a validation function that catches and logs malformed LLM responses without crashing the extraction pipeline.
 
 ---
 
@@ -33,4 +33,4 @@
 
 **Priority:** Medium (Phase 2 Starter)  
 **Estimation:** 2 Story Points  
-**Status:** ⏳ `in-progress`
+**Status:** ✅ `done`
