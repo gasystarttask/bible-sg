@@ -67,3 +67,50 @@ This will:
 - ~31,102 documents in MongoDB with embeddings
 - Dimensions: 1536 floats per verse
 - Indexed for fast semantic similarity search
+
+## Setup Vitest for Testing
+
+To set up Vitest in the search-engine app:
+
+### 1. Install Vitest and dependencies
+
+```bash
+npm install -D vitest @vitest/ui happy-dom
+```
+
+### 2. Update `package.json`
+
+Add test scripts:
+
+```json
+"scripts": {
+  "test": "vitest",
+  "test:ui": "vitest --ui",
+  "test:run": "vitest run"
+}
+```
+
+### 3. Create `vitest.config.js`
+
+```javascript
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html']
+    }
+  }
+})
+```
+
+### 4. Run tests
+
+```bash
+npm test        # Watch mode
+npm run test:ui # With UI
+npm run test:run # Single run
+```
