@@ -8,10 +8,10 @@
 
 ## 🎯 Acceptance Criteria
 
-- [ ] **Collection Setup:** Create `entities` and `relations` collections in DocumentDB.
-- [ ] **Unique Constraints:** Ensure no duplicate entities are created (use `slug` as a unique index).
-- [ ] **Referential Integrity:** Verify that every relation points to valid entity IDs.
-- [ ] **Upsert Logic:** Implement "upsert" (update or insert) logic to allow re-running the script without data corruption.
+- [x] **Collection Setup:** Create `entities` and `relations` collections in DocumentDB.
+- [x] **Unique Constraints:** Ensure no duplicate entities are created (use `slug` as a unique index).
+- [x] **Referential Integrity:** Verify that every relation points to valid entity IDs.
+- [x] **Upsert Logic:** Implement "upsert" (update or insert) logic to allow re-running the script without data corruption.
 
 ---
 
@@ -32,4 +32,4 @@
 
 **Priority:** Medium  
 **Estimation:** 5 Story Points  
-**Status:** 📥 `to-do`
+**Status:** ✅ `done`
