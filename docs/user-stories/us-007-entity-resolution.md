@@ -1,16 +1,16 @@
 # User Story: US-007 - Entity Resolution (Deduplication)
 
 **As a** Product Owner,  
-**I want to** merge different mentions of the same entity (e.g., "Christ", "Jésus", "Le Seigneur") into a single canonical ID,  
+**I want to** merge different mentions of the same entity (e.g., "Christ", "Jésus", "Le Seigneur", "Jésus-Nazareth") into a single canonical ID,  
 **So that** the graph remains accurate and easy to navigate.
 
 ---
 
 ## 🎯 Acceptance Criteria
 
-- [ ] **Alias Mapping:** Create a dictionary or use an LLM to map synonyms to a canonical slug (e.g., `jesus_christ`).
-- [ ] **ID Normalization:** Update all relations to use the canonical slug instead of raw text names.
-- [ ] **Manual Overrides:** Provide a way to manually fix incorrect merges via a configuration file.
+- [x] **Alias Mapping:** Create a dictionary or use an LLM to map synonyms to a canonical slug (e.g., `jesus_christ`).
+- [x] **ID Normalization:** Update all relations to use the canonical slug instead of raw text names.
+- [x] **Manual Overrides:** Provide a way to manually fix incorrect merges via a configuration file.
 
 ---
 
@@ -31,4 +31,4 @@
 
 **Priority:** Low (Refinement)  
 **Estimation:** 5 Story Points  
-**Status:** 📥 `to-do`
+**Status:** ✅ `done`

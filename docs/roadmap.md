@@ -18,10 +18,10 @@ This roadmap outlines the development of a semantic search and chat engine for t
 ## 🕸️ Phase 2: Knowledge Graph Extraction
 *Focus: Building the relational layer (People, Places, Events).*
 
-- ⏳ **Entity Extraction Schema** (Zod definitions for Persons/Locations) `in-progress`
-- 📥 **LLM Extraction Pipeline** (Processing key books: Genesis, Gospels, Acts) `to-do`
-- 📥 **Graph Database Population** (Populating `entities` and `relations` collections) `to-do`
-- 📥 **Entity Resolution** (Merging "Jesus", "Christ", and "Lord" into a single ID) `to-do`
+- ✅ **Entity Extraction Schema** (Zod definitions for Persons/Locations) `done`
+- ✅ **LLM Extraction Pipeline** (Processing key books: Genesis, Gospels, Acts) `done`
+- ✅ **Graph Database Population** (Populating `entities` and `relations` collections) `done`
+- ✅ **Entity Resolution** (Merging "Jesus", "Christ", and "Lord" into a single ID) `done`
 
 ---
 
