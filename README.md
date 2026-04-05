@@ -28,6 +28,7 @@ Bible SG is a proof-of-concept Bible AI engine using semantic search (vector emb
 - [Roadmap](./docs/roadmap.md)
 - [User Story: US-003 Semantic Search API](./docs/user-stories/us-003-semantic-search-api.md)
 
-## License
+## Licensing
 
-This project is licensed under the [MIT License](./LICENSE).
+- **Code**: [MIT License](`./LICENSE`)
+- **Data**: [CC0-1.0](`./DATA_LICENSE.md`), source: https://github.com/christos-c/bible-corpus
