@@ -134,9 +134,9 @@ describe('Graph Schema - Relation Validation', () => {
   })
 
   it('should reject relation with invalid relation_type', () => {
-    const invalidRelation: Relation = {
+    const invalidRelation = {
       source_slug: 'isaac',
-      relation_type: 'INVALID_RELATION' as any,
+      relation_type: 'INVALID_RELATION',
       target_slug: 'abraham',
       evidence_verse_id: 'b.GEN.21.2'
     }
@@ -166,17 +166,17 @@ describe('Graph Schema - Relation Validation', () => {
       'SERVANT_OF',
       'PROPHET_OF',
       'EVENT_AT'
-    ]
+    ] as const
 
-    relationTypes.forEach(relType => {
-      const relation: Relation = {
+    relationTypes.forEach((relType) => {
+      const relation = {
         source_slug: 'entity1',
-        relation_type: relType as any,
+        relation_type: relType,
         target_slug: 'entity2',
         evidence_verse_id: 'b.GEN.1.1'
       }
       const result = validateRelation(relation)
-      expect(result.success).toBe(true)
+      expect(result.success, `Relation type ${relType} should be valid`).toBe(true)
     })
   })
 })

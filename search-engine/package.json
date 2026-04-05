@@ -6,6 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "extract:graph": "tsx src/scripts/extract-graph.ts",
+    "convert:obsidian": "tsx src/scripts/convert-to-obsidian.ts",
+    "merge:graph": "tsx src/scripts/merge-raw-graph.ts",
     "lint": "eslint",
     "test": "vitest",
     "test:ui": "vitest --ui",
@@ -29,6 +32,7 @@
     "eslint-config-next": "16.2.2",
     "happy-dom": "^20.8.9",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
   }

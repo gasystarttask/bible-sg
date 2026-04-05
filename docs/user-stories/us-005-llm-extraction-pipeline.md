@@ -8,10 +8,10 @@
 
 ## 🎯 Acceptance Criteria
 
-- [ ] **Prompt Engineering:** Create a specialized prompt that instructs the LLM to identify genealogy, geography, and key events.
-- [ ] **Batch Processing:** Implement a script to iterate through specific books (Genesis, Gospels, Acts).
-- [ ] **Rate Limit Management:** Handle OpenAI/Anthropic API limits using delays or queuing (especially for large books).
-- [ ] **Traceability:** Ensure every extracted relation is linked to its source `verse_id` from the XML.
+- [x] **Prompt Engineering:** Create a specialized prompt that instructs the LLM to identify genealogy, geography, and key events.
+- [x] **Batch Processing:** Implement a script to iterate through specific books (Genesis, Gospels, Acts).
+- [x] **Rate Limit Management:** Handle OpenAI/Anthropic API limits using delays or queuing (especially for large books).
+- [x] **Traceability:** Ensure every extracted relation is linked to its source `verse_id` from the XML.
 
 ---
 
@@ -33,4 +33,4 @@
 
 **Priority:** High (Core Graph Logic)  
 **Estimation:** 8 Story Points  
-**Status:** 📥 `to-do`
+**Status:**  ✅ `done`
