@@ -17,7 +17,7 @@
 
 ## 🛠️ Technical Notes
 
-* **DB:** DocumentDB (PostgreSQL backend).
+* **DB:** DocumentDB
 * **Indexing:** Create indexes on `source_slug` and `target_slug` for fast graph traversal.
 
 ---

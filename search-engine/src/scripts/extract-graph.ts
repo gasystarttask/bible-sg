@@ -813,9 +813,9 @@ export function createCopilotLlmClient(githubToken: string, model = 'gpt-4o'): L
       }
     }
   } as Omit<ChatOpenAIFields, "model">);
-
   return {
     async invoke(prompt: string): Promise<string> {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const response = await (copilotModel as any).invoke([
         new SystemMessage(
           [

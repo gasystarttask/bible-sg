@@ -9,6 +9,7 @@
     "extract:graph": "tsx src/scripts/extract-graph.ts",
     "convert:obsidian": "tsx src/scripts/convert-to-obsidian.ts",
     "merge:graph": "tsx src/scripts/merge-raw-graph.ts",
+    "populate:graph": "tsx src/scripts/populate-graph-db.ts",
     "lint": "eslint",
     "test": "vitest",
     "test:ui": "vitest --ui",

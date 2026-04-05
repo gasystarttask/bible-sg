@@ -530,12 +530,12 @@ describe('US-005 - LLM Extraction Pipeline', () => {
 
       let callCount = 0
       const llm: LlmClient = {
-        invoke: async () => {
+      invoke: async () => {
           callCount++
           if (callCount === 2) {
             const err = new Error('Rate limit')
-            ;(err as any).status = 429
-            ;(err as any).headers = { 'retry-after': '86400' }
+            ;(err as Error & { status: number; headers: Record<string, string> }).status = 429
+            ;(err as Error & { status: number; headers: Record<string, string> }).headers = { 'retry-after': '86400' }
             throw err
           }
           return JSON.stringify({ entities: [], relations: [] })
