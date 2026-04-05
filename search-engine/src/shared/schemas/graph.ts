@@ -35,24 +35,42 @@ export type Entity = z.infer<typeof EntitySchema>
  * Relation Types for connections between entities
  */
 export const RelationTypeEnum = z.enum([
+  // --- Genealogy ---
   'SON_OF',
   'DAUGHTER_OF',
   'FATHER_OF',
   'MOTHER_OF',
   'SPOUSE_OF',
+  'BROTHER_OF',
+  'SISTER_OF',
+  'NEPHEW_OF',
+  'NIECE_OF',
+  'ANCESTOR_OF',
+  'DESCENDANT_OF',
+  // --- Geography ---
   'BORN_IN',
   'DIED_IN',
+  'LOCATED_IN',
+  'TRAVELS_TO',
+  'ORIGINATED_FROM',
+  // --- Creation & Possession ---
+  'CREATED_BY',
+  'OWNED_BY',
   'RULED_OVER',
+  // --- Narrative interactions ---
+  'INTERACTS_WITH',
+  'TAKES_INTO_HOUSE',
+  'APPEARS_IN',
+  'PARTICIPATED_IN',
+  'EVENT_AT',
+  // --- Spiritual ---
+  'BLESSED_BY',
+  'CURSED_BY',
   'SERVANT_OF',
   'PROPHET_OF',
   'FOLLOWER_OF',
   'ENEMY_OF',
-  'ALLY_OF',
-  'BLESSED_BY',
-  'CURSED_BY',
-  'OWNED_BY',
-  'LOCATED_IN',
-  'EVENT_AT'
+  'ALLY_OF'
 ])
 
 export type RelationType = z.infer<typeof RelationTypeEnum>
