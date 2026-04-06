@@ -1,13 +1,7 @@
+import { ChapterGraph, RawRelation, RawEntity, RawGraphOutput } from '@search/types/entity.type'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type {
-  RawEntity,
-  RawRelation,
-  ChapterGraph,
-  RawGraphOutput
-} from './extract-graph'
-
 interface CliOptions {
   inputDir: string
   outputPath: string

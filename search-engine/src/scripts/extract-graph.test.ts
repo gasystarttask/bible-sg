@@ -8,11 +8,8 @@ import {
   mergeEntities,
   groupByBookChapter,
   createCopilotLlmClient,
-  type LlmClient,
-  type VerseRecord,
-  type RawGraphOutput,
-  type ChapterGraph
 } from './extract-graph'
+import { VerseRecord, ChapterGraph, LlmClient, RawGraphOutput } from '@search/types/entity.type';
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true })

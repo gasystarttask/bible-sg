@@ -9,61 +9,10 @@ import {
 } from '@search/shared/schemas/graph'
 import { ChatOpenAI, ChatOpenAIFields } from '@langchain/openai'
 import PQueue from 'p-queue';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages'
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { VerseRecord, ChapterGraph, RawGraphOutput, LlmClient, RawEntity, RawRelation, RunOptions } from '@search/types/entity.type'
+import { TargetBook } from '@search/types/target-book.type'
 
-export type TargetBook = 'GEN' | 'MAT' | 'ACT'
-
-export interface VerseRecord {
-  verse_id: string
-  text: string
-  book?: string
-  chapter?: number
-  verse?: number
-}
-
-export interface RawEntity {
-  name: string
-  type: 'Person' | 'Location' | 'Object' | 'Event'
-  description: string
-  slug: string
-  source_verse_id: string
-}
-
-export interface RawRelation {
-  source_slug: string
-  relation_type: string
-  target_slug: string
-  evidence_verse_id: string
-}
-
-export interface ChapterGraph {
-  book: string
-  chapter: number
-  query: string
-  entities: RawEntity[]
-  relations: RawRelation[]
-}
-
-export interface RawGraphOutput {
-  generated_at: string
-  books: string[]
-  chapters: ChapterGraph[]
-  merged_entities?: RawEntity[]
-}
-
-export interface LlmClient {
-  invoke(prompt: string): Promise<string>
-}
-export interface RunOptions {
-  inputPath: string
-  outputPath: string
-  books?: TargetBook[]
-  delayMs?: number
-  llm: LlmClient
-  sleepFn?: (ms: number) => Promise<void>
-  verbose?: boolean
-  partialOutputPath?: string
-}
 
 const VERSE_ID_RE = /^b\.([A-Z0-9]+)\.(\d+)\.(\d+)$/
 const DEFAULT_BOOKS: TargetBook[] = ['GEN', 'MAT', 'ACT']

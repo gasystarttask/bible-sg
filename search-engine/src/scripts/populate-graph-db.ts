@@ -1,8 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { MongoClient, ObjectId, type Db } from 'mongodb'
-import { getDb } from '../lib/mongodb'
-import type { ChapterGraph, RawEntity, RawGraphOutput, RawRelation } from './extract-graph'
+import { RawEntity, RawRelation, RawGraphOutput, ChapterGraph } from '@search/types/entity.type'
 
 interface CliOptions {
   inputPath: string
