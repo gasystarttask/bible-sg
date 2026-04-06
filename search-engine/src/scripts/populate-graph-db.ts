@@ -84,8 +84,8 @@ function collectRelations(graph: RawGraphOutput): RawRelation[] {
 }
 
 async function ensureIndexes(db: Db): Promise<void> {
-  const entities = db.collection<EntityDoc>('entities')
-  const relations = db.collection<RelationDoc>('relations')
+  const entities = db.collection<EntityDoc>('entities');
+  const relations = db.collection<RelationDoc>('relations');
 
   await entities.createIndex({ slug: 1 }, { unique: true, name: 'ux_entities_slug' })
   await relations.createIndex({ source_slug: 1 }, { name: 'ix_rel_source_slug' })

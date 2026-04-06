@@ -15,3 +15,10 @@ db.runCommand({
     }
   }]
 });
+
+/**
+db.verses.createIndex({ entity_slugs: 1 });
+db.entities.createIndex({ slug: 1 }, { unique: true });
+db.relations.createIndex({ source_slug: 1 });
+db.relations.createIndex({ source_entity_id: 1 });
+ */

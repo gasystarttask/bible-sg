@@ -1,15 +1,20 @@
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
   buildExtractionPrompt,
-  runExtractionPipeline,
-  mergeEntities,
-  groupByBookChapter,
   createCopilotLlmClient,
+  groupByBookChapter,
+  mergeEntities,
+  runExtractionPipeline
 } from './extract-graph'
-import { VerseRecord, ChapterGraph, LlmClient, RawGraphOutput } from '@search/types/entity.type';
+import {
+  ChapterGraph,
+  LlmClient,
+  RawGraphOutput,
+  VerseRecord
+} from '@search/types/entity.type'
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true })
@@ -35,10 +40,14 @@ describe('US-005 - LLM Extraction Pipeline', () => {
 
       expect(prompt).toContain("Toute l'extraction doit être faite en FRANÇAIS")
       expect(prompt).toContain('RÈGLES STRICTES')
-      expect(prompt).toContain('Person, Location, Object')
-      expect(prompt).toContain('PERE_DE')
-      expect(prompt).toContain('EPOUX_DE')
-      expect(prompt).toContain('VOYAGE_VERS')
+      expect(prompt).toContain("Types d'entités : Person, Location, Object, Event")
+      expect(prompt).toContain('FATHER_OF')
+      expect(prompt).toContain('SPOUSE_OF')
+      expect(prompt).toContain('TRAVELS_TO')
+      expect(prompt).toContain('source_type')
+      expect(prompt).toContain('target_type')
+      expect(prompt).toContain('justification')
+      expect(prompt).toContain('WHAT NOT TO EXTRACT')
       expect(prompt).toContain('JSON valide')
       expect(prompt).toContain('__JSON_START__')
       expect(prompt).toContain('__JSON_END__')
@@ -202,12 +211,9 @@ describe('US-005 - LLM Extraction Pipeline', () => {
 
       expect(merged.size).toBe(2)
       const keys = Array.from(merged.keys())
-      // Both keys should have 'henoch' in them
       const henochKeys = keys.filter((k) => k.includes('henoch'))
       expect(henochKeys).toHaveLength(2)
-      // At least one key should be the plain slug, the other should be disambiguated
       expect(keys).toContain('henoch')
-      // The second one should have a suffix with context
       const suffixed = keys.find((k) => k !== 'henoch' && k.includes('henoch'))
       expect(suffixed).toBeDefined()
     })
@@ -303,8 +309,11 @@ describe('US-005 - LLM Extraction Pipeline', () => {
             relations: [
               {
                 source_slug: 'lot',
-                relation_type: 'NEPHEW_OF',
+                relation_type: 'INTERACTS_WITH',
                 target_slug: 'abram',
+                source_type: 'Person',
+                target_type: 'Person',
+                justification: "Lot est mentionné avec Abram dans le même épisode.",
                 evidence_verse_id: 'b.GEN.12.5'
               }
             ]
@@ -323,13 +332,19 @@ describe('US-005 - LLM Extraction Pipeline', () => {
       expect(result.chapters).toHaveLength(1)
       expect(result.chapters[0].entities).toHaveLength(2)
       expect(result.chapters[0].relations).toHaveLength(1)
+      expect(result.chapters[0].relations[0]).toEqual({
+        source_slug: 'lot',
+        relation_type: 'INTERACTS_WITH',
+        target_slug: 'abram',
+        evidence_verse_id: 'b.GEN.12.5'
+      })
       expect(result.merged_entities).toHaveLength(2)
 
       const saved = JSON.parse(await readFile(outputPath, 'utf-8')) as RawGraphOutput
       expect(saved.chapters).toHaveLength(1)
     })
 
-    it('DoD: extracts genealogy (NEPHEW_OF), geography (TRAVELS_TO), and persons', async () => {
+    it('filters unsupported kinship noise (NEPHEW_OF) but keeps supported geography relations', async () => {
       const inputPath = path.join(tmpDir, 'processed_bible.json')
       const outputPath = path.join(tmpDir, 'data', 'raw_graph.json')
 
@@ -390,18 +405,27 @@ describe('US-005 - LLM Extraction Pipeline', () => {
                 source_slug: 'lot',
                 relation_type: 'NEPHEW_OF',
                 target_slug: 'abram',
+                source_type: 'Person',
+                target_type: 'Person',
+                justification: "Lot est le neveu d'Abram.",
                 evidence_verse_id: 'b.GEN.12.5'
               },
               {
                 source_slug: 'abram',
                 relation_type: 'TRAVELS_TO',
                 target_slug: 'canaan',
+                source_type: 'Person',
+                target_type: 'Location',
+                justification: 'Abram se rend en Canaan.',
                 evidence_verse_id: 'b.GEN.12.5'
               },
               {
                 source_slug: 'abram',
                 relation_type: 'TRAVELS_TO',
                 target_slug: 'egypte',
+                source_type: 'Person',
+                target_type: 'Location',
+                justification: 'Abram descend en Égypte.',
                 evidence_verse_id: 'b.GEN.12.10'
               }
             ]
@@ -418,19 +442,28 @@ describe('US-005 - LLM Extraction Pipeline', () => {
       })
 
       expect(result.chapters).toHaveLength(1)
-      expect(result.chapters[0].relations).toContainEqual({
+      expect(result.chapters[0].relations).toHaveLength(2)
+
+      expect(result.chapters[0].relations).not.toContainEqual({
         source_slug: 'lot',
         relation_type: 'NEPHEW_OF',
         target_slug: 'abram',
         evidence_verse_id: 'b.GEN.12.5'
       })
-      expect(result.chapters[0].relations).toContainEqual(
-        expect.objectContaining({
-          source_slug: 'abram',
-          relation_type: 'TRAVELS_TO',
-          target_slug: 'egypte'
-        })
-      )
+
+      expect(result.chapters[0].relations).toContainEqual({
+        source_slug: 'abram',
+        relation_type: 'TRAVELS_TO',
+        target_slug: 'canaan',
+        evidence_verse_id: 'b.GEN.12.5'
+      })
+
+      expect(result.chapters[0].relations).toContainEqual({
+        source_slug: 'abram',
+        relation_type: 'TRAVELS_TO',
+        target_slug: 'egypte',
+        evidence_verse_id: 'b.GEN.12.10'
+      })
     })
 
     it('uses schema validator and does not crash on malformed LLM output', async () => {
@@ -504,7 +537,6 @@ describe('US-005 - LLM Extraction Pipeline', () => {
       })
       const elapsed = Date.now() - start
 
-      // With 2 chapters and 100ms delay between them, should take at least 50ms
       expect(elapsed).toBeGreaterThanOrEqual(50)
     }, 10000)
 
@@ -527,12 +559,14 @@ describe('US-005 - LLM Extraction Pipeline', () => {
 
       let callCount = 0
       const llm: LlmClient = {
-      invoke: async () => {
+        invoke: async () => {
           callCount++
           if (callCount === 2) {
             const err = new Error('Rate limit')
             ;(err as Error & { status: number; headers: Record<string, string> }).status = 429
-            ;(err as Error & { status: number; headers: Record<string, string> }).headers = { 'retry-after': '86400' }
+            ;(err as Error & { status: number; headers: Record<string, string> }).headers = {
+              'retry-after': '86400'
+            }
             throw err
           }
           return JSON.stringify({ entities: [], relations: [] })
