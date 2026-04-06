@@ -1,6 +1,6 @@
+import { RawGraphOutput, RawEntity, ChapterGraph, RawRelation } from '@search/types/entity.type';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ChapterGraph, RawEntity, RawGraphOutput, RawRelation } from './extract-graph';
 
 interface CliOptions {
   inputPath: string;

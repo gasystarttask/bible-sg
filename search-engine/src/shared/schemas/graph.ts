@@ -1,24 +1,17 @@
 import { z } from 'zod'
 
-/**
- * Entity Types for biblical entities
- */
+export const VerseIdSchema = z
+  .string()
+  .regex(/^b\.[A-Z0-9]+\.\d+\.\d+$/, 'Invalid verse id format (expected b.BOOK.CHAPTER.VERSE)')
+
+export const SlugSchema = z
+  .string()
+  .min(1, 'Slug is required')
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Invalid slug format')
+
 export const EntityTypeEnum = z.enum(['Person', 'Location', 'Object', 'Event'])
 export type EntityType = z.infer<typeof EntityTypeEnum>
 
-const SlugSchema = z
-  .string()
-  .min(1, 'Slug is required')
-  .regex(/^[a-z0-9_-]+$/, 'Slug must be lowercase alphanumeric with hyphens and underscores')
-
-const VerseIdSchema = z
-  .string()
-  .min(1, 'Verse ID is required')
-  .regex(/^b\.[A-Z]+\.\d+\.\d+$/, 'Verse ID format must be b.BOOK.CHAPTER.VERSE')
-
-/**
- * Entity Schema - represents a biblical entity
- */
 export const EntitySchema = z
   .object({
     name: z.string().min(1, 'Entity name is required'),
@@ -31,15 +24,11 @@ export const EntitySchema = z
 
 export type Entity = z.infer<typeof EntitySchema>
 
-/**
- * Relation Types for connections between entities
- */
 export const RelationTypeEnum = z.enum([
-  // --- Genealogy ---
-  'SON_OF',
-  'DAUGHTER_OF',
   'FATHER_OF',
   'MOTHER_OF',
+  'SON_OF',
+  'DAUGHTER_OF',
   'SPOUSE_OF',
   'BROTHER_OF',
   'SISTER_OF',
@@ -47,37 +36,29 @@ export const RelationTypeEnum = z.enum([
   'NIECE_OF',
   'ANCESTOR_OF',
   'DESCENDANT_OF',
-  // --- Geography ---
   'BORN_IN',
   'DIED_IN',
   'LOCATED_IN',
   'TRAVELS_TO',
   'ORIGINATED_FROM',
-  // --- Creation & Possession ---
-  'CREATED_BY',
   'OWNED_BY',
   'RULED_OVER',
-  // --- Narrative interactions ---
   'INTERACTS_WITH',
   'TAKES_INTO_HOUSE',
   'APPEARS_IN',
   'PARTICIPATED_IN',
   'EVENT_AT',
-  // --- Spiritual ---
   'BLESSED_BY',
   'CURSED_BY',
   'SERVANT_OF',
   'PROPHET_OF',
   'FOLLOWER_OF',
   'ENEMY_OF',
-  'ALLY_OF'
+  'ALLY_OF',
+  'CREATED_BY'
 ])
-
 export type RelationType = z.infer<typeof RelationTypeEnum>
 
-/**
- * Relation Schema - represents a connection between two entities (RDF-like triple)
- */
 export const RelationSchema = z
   .object({
     source_slug: SlugSchema,
@@ -90,72 +71,145 @@ export const RelationSchema = z
 export type Relation = z.infer<typeof RelationSchema>
 
 /**
- * Graph Schema - collection of entities and relations
+ * Stratégie 1: Schéma strict pour l'étape d'extraction LLM
+ * - liste fermée de relations utiles
+ * - endpoints typés Person|Location
+ * - justification requise
  */
+export const StrictExtractionRelationTypeEnum = z.enum([
+  'FATHER_OF',
+  'MOTHER_OF',
+  'SON_OF',
+  'DAUGHTER_OF',
+  'SPOUSE_OF',
+  'BROTHER_OF',
+  'SISTER_OF',
+  'TRAVELS_TO',
+  'LOCATED_IN',
+  'FOLLOWER_OF',
+  'INTERACTS_WITH',
+  'EVENT_AT'
+])
+export type StrictExtractionRelationType = z.infer<typeof StrictExtractionRelationTypeEnum>
+
+const EndpointTypeEnum = z.enum(['Person', 'Location'])
+
+const KINSHIP_TYPES = new Set<StrictExtractionRelationType>([
+  'FATHER_OF',
+  'MOTHER_OF',
+  'SON_OF',
+  'DAUGHTER_OF',
+  'SPOUSE_OF',
+  'BROTHER_OF',
+  'SISTER_OF'
+])
+
+const NOISY_EVENT_TARGETS = new Set(['roc', 'rocher', 'sable', 'foule', 'multitude'])
+const METAPHORIC_SPOUSE_SLUGS = new Set(['diable', 'satan', 'satanas', 'esprit', 'esprit-saint', 'saint-esprit'])
+
+function normalizeSlugLike(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim()
+}
+
+export const ExtractionRelationSchema = z
+  .object({
+    source_slug: SlugSchema,
+    relation_type: StrictExtractionRelationTypeEnum,
+    target_slug: SlugSchema,
+    source_type: EndpointTypeEnum, // Person|Location uniquement
+    target_type: EndpointTypeEnum, // Person|Location uniquement
+    justification: z.string().min(8, 'Justification is required'),
+    evidence_verse_id: VerseIdSchema
+  })
+  .strict()
+  .superRefine((rel, ctx) => {
+    // parenté uniquement Person -> Person
+    if (KINSHIP_TYPES.has(rel.relation_type)) {
+      if (rel.source_type !== 'Person' || rel.target_type !== 'Person') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Kinship relations must be Person -> Person'
+        })
+      }
+    }
+
+    // EVENT_AT doit pointer vers Location
+    if (rel.relation_type === 'EVENT_AT' && rel.target_type !== 'Location') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'EVENT_AT target must be Location'
+      })
+    }
+
+    // anti-bruit circonstanciel
+    const s = normalizeSlugLike(rel.source_slug)
+    const t = normalizeSlugLike(rel.target_slug)
+
+    if (rel.relation_type === 'SPOUSE_OF' && (METAPHORIC_SPOUSE_SLUGS.has(s) || METAPHORIC_SPOUSE_SLUGS.has(t))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'SPOUSE_OF with metaphorical entities is not allowed'
+      })
+    }
+
+    if (rel.relation_type === 'EVENT_AT' && NOISY_EVENT_TARGETS.has(t)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'EVENT_AT with generic/noisy target is not allowed'
+      })
+    }
+  })
+
+export type ExtractionRelation = z.infer<typeof ExtractionRelationSchema>
+
 export const GraphSchema = z
   .object({
     entities: z.array(EntitySchema),
     relations: z.array(RelationSchema)
   })
   .strict()
-  .superRefine((graph, ctx) => {
-    const seen = new Set<string>()
-    graph.entities.forEach((e, i) => {
-      if (seen.has(e.slug)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['entities', i, 'slug'],
-          message: `Duplicate entity slug: ${e.slug}`
-        })
-      }
-      seen.add(e.slug)
-    })
-  })
 
 export type Graph = z.infer<typeof GraphSchema>
 
-/**
- * Validation result type
- */
-export interface ValidationResult<T> {
+export const ExtractionGraphSchema = z
+  .object({
+    entities: z.array(EntitySchema),
+    relations: z.array(ExtractionRelationSchema)
+  })
+  .strict()
+
+export type ExtractionGraph = z.infer<typeof ExtractionGraphSchema>
+
+export function validateGraph(input: unknown): {
   success: boolean
-  data?: T
+  data?: Graph
   errors?: string[]
+} {
+  const result = GraphSchema.safeParse(input)
+  if (!result.success) {
+    return {
+      success: false,
+      errors: result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`)
+    }
+  }
+  return { success: true, data: result.data }
 }
 
-function mapZodErrors(error: z.ZodError): string[] {
-  return error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-}
-
-/**
- * Validates entity data and returns structured result
- */
-export function validateEntity(data: unknown): ValidationResult<Entity> {
-  const result = EntitySchema.safeParse(data)
-  if (result.success) return { success: true, data: result.data }
-  const errors = mapZodErrors(result.error)
-  console.error('Entity validation failed:', errors)
-  return { success: false, errors }
-}
-
-/**
- * Validates relation data and returns structured result
- */
-export function validateRelation(data: unknown): ValidationResult<Relation> {
-  const result = RelationSchema.safeParse(data)
-  if (result.success) return { success: true, data: result.data }
-  const errors = mapZodErrors(result.error)
-  console.error('Relation validation failed:', errors)
-  return { success: false, errors }
-}
-
-/**
- * Validates graph data (entities and relations) and returns structured result
- */
-export function validateGraph(data: unknown): ValidationResult<Graph> {
-  const result = GraphSchema.safeParse(data)
-  if (result.success) return { success: true, data: result.data }
-  const errors = mapZodErrors(result.error)
-  console.error('Graph validation failed:', errors)
-  return { success: false, errors }
+export function validateExtractionGraph(input: unknown): {
+  success: boolean
+  data?: ExtractionGraph
+  errors?: string[]
+} {
+  const result = ExtractionGraphSchema.safeParse(input)
+  if (!result.success) {
+    return {
+      success: false,
+      errors: result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`)
+    }
+  }
+  return { success: true, data: result.data }
 }

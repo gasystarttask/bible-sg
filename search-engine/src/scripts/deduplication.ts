@@ -1,40 +1,15 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { MongoClient, ObjectId, type Db } from 'mongodb'
-import { mergeEntities, type ChapterGraph, type RawEntity, type RawGraphOutput, type RawRelation } from './extract-graph'
+import { mergeEntities } from './extract-graph';
+import { RawEntity, RawRelation, AliasConfig, RawGraphOutput, ChapterGraph } from '@search/types/entity.type';
+import { ResolvedEntity, EntityDoc, RelationDoc } from '@search/types/relation-doc.type';
 
 interface CliOptions {
   inputPath: string
   aliasConfigPath: string
   strictRelations: boolean
   autoCreateMissing: boolean
-}
-
-interface AliasConfig {
-  alias_to_canonical?: Record<string, string>
-  canonical_aliases?: Record<string, string[]>
-  canonical_meta?: Record<string, { name?: string; type?: string }>
-}
-
-type ResolvedEntity = RawEntity & {
-  aliases: string[]
-}
-
-type EntityDoc = RawEntity & {
-  _id?: ObjectId
-  aliases?: string[]
-  description_fragments?: string[]
-  created_at: Date
-  updated_at: Date
-}
-
-type RelationDoc = RawRelation & {
-  _id?: ObjectId
-  source_entity_id: ObjectId
-  target_entity_id: ObjectId
-  evidence_verse_ids?: string[]
-  created_at: Date
-  updated_at: Date
 }
 
 const DEFAULT_ALIAS_TO_CANONICAL: Record<string, string> = {

@@ -8,67 +8,68 @@ import {
   validateGraph
 } from '@search/shared/schemas/graph'
 import { ChatOpenAI, ChatOpenAIFields } from '@langchain/openai'
-import PQueue from 'p-queue';
+import PQueue from 'p-queue'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
-
-export type TargetBook = 'GEN' | 'MAT' | 'ACT'
-
-export interface VerseRecord {
-  verse_id: string
-  text: string
-  book?: string
-  chapter?: number
-  verse?: number
-}
-
-export interface RawEntity {
-  name: string
-  type: 'Person' | 'Location' | 'Object' | 'Event'
-  description: string
-  slug: string
-  source_verse_id: string
-}
-
-export interface RawRelation {
-  source_slug: string
-  relation_type: string
-  target_slug: string
-  evidence_verse_id: string
-}
-
-export interface ChapterGraph {
-  book: string
-  chapter: number
-  query: string
-  entities: RawEntity[]
-  relations: RawRelation[]
-}
-
-export interface RawGraphOutput {
-  generated_at: string
-  books: string[]
-  chapters: ChapterGraph[]
-  merged_entities?: RawEntity[]
-}
-
-export interface LlmClient {
-  invoke(prompt: string): Promise<string>
-}
-export interface RunOptions {
-  inputPath: string
-  outputPath: string
-  books?: TargetBook[]
-  delayMs?: number
-  llm: LlmClient
-  sleepFn?: (ms: number) => Promise<void>
-  verbose?: boolean
-  partialOutputPath?: string
-}
+import {
+  VerseRecord,
+  ChapterGraph,
+  RawGraphOutput,
+  LlmClient,
+  RawEntity,
+  RawRelation,
+  RunOptions
+} from '@search/types/entity.type'
+import { TargetBook } from '@search/types/target-book.type'
 
 const VERSE_ID_RE = /^b\.([A-Z0-9]+)\.(\d+)\.(\d+)$/
 const DEFAULT_BOOKS: TargetBook[] = ['GEN', 'MAT', 'ACT']
 
 type JsonRecord = Record<string, unknown>
+type EntityType = z.infer<typeof EntityTypeEnum>
+type RelationType = z.infer<typeof RelationTypeEnum>
+
+interface RelationCandidate extends RawRelation {
+  source_type?: EntityType
+  target_type?: EntityType
+  justification?: string
+}
+
+const ENDPOINT_TYPES = new Set<EntityType>(['Person', 'Location'])
+
+const STRICT_RELATION_TYPES = new Set<RelationType>([
+  'FATHER_OF',
+  'MOTHER_OF',
+  'SON_OF',
+  'DAUGHTER_OF',
+  'SPOUSE_OF',
+  'BROTHER_OF',
+  'SISTER_OF',
+  'TRAVELS_TO',
+  'LOCATED_IN',
+  'FOLLOWER_OF',
+  'INTERACTS_WITH',
+  'EVENT_AT'
+])
+
+const NOISY_OBJECT_SLUGS = new Set<string>([
+  'roc',
+  'rocher',
+  'sable',
+  'bois',
+  'vetement',
+  'vetements',
+  'arbre',
+  'arbre-fruitier',
+  'foule',
+  'multitude'
+])
+
+const IMPORTANT_OBJECT_WHITELIST = new Set<string>([
+  'arche-de-l-alliance',
+  'tabernacle',
+  'temple',
+  'autel'
+])
 
 function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
@@ -260,9 +261,25 @@ export function buildExtractionPrompt(args: {
     'RÈGLES STRICTES :',
     '1) Noms : Utilise les noms bibliques français (ex: "Éternel" ou "Dieu", "Abram", "Moïse").',
     '2) Description : Rédige une description courte en français.',
-    '3) Types : Utilise uniquement Person, Location, Object (et Event si nécessaire).',
-    '4) Relations : Utilise des constantes en MAJUSCULES en français (ex: PERE_DE, EPOUX_DE, VOYAGE_VERS).',
-    '5) Pas d\'anglais dans les champs de contenu.',
+    '3) Types d\'entités : Person, Location, Object, Event.',
+    '4) Relations autorisées (liste fermée) :',
+    '   FATHER_OF, MOTHER_OF, SON_OF, DAUGHTER_OF, SPOUSE_OF, BROTHER_OF, SISTER_OF,',
+    '   TRAVELS_TO, LOCATED_IN, FOLLOWER_OF, INTERACTS_WITH, EVENT_AT.',
+    '5) Pour chaque relation, fournis: source_type, target_type (Person|Location) + justification.',
+    '6) source_type et target_type doivent être Person ou Location uniquement.',
+    '7) Pas d\'anglais dans les champs de contenu (sauf constantes relation_type).',
+    '',
+    'WHAT NOT TO EXTRACT (IMPORTANT):',
+    '- Ne PAS extraire les objets inanimés non pivots (sable, bois, vêtements, roc, arbre fruitier).',
+    '- Exception: objets historiques majeurs (ex: Arche de l’Alliance, Temple, Tabernacle).',
+    '- Ne PAS créer de relation familiale (SPOUSE_OF, FATHER_OF, etc.) entre ennemis',
+    '  ou relations circonstancielles (ex: Jésus et diable).',
+    '- Ne PAS utiliser EVENT_AT avec des cibles génériques (sable, foule, multitude).',
+    '',
+    'Validation de direction:',
+    '- La justification doit être explicite et cohérente avec la direction.',
+    '- Exemple correct: { "relation_type":"FATHER_OF", "justification":"David est l\'ancêtre de X" }.',
+    '- Si la phrase implique "X est le fils de Y", alors la relation doit être SON_OF (X -> Y).',
     '',
     'Réponds uniquement en JSON valide.',
     'Encadre le JSON entre __JSON_START__ et __JSON_END__.',
@@ -274,7 +291,15 @@ export function buildExtractionPrompt(args: {
     '    { "name": "...", "type": "Person|Location|Object|Event", "description": "...", "slug": "...", "source_verse_id": "b.BOOK.CHAPTER.VERSE" }',
     '  ],',
     '  "relations": [',
-    '    { "source_slug": "...", "relation_type": "PERE_DE|EPOUX_DE|VOYAGE_VERS|...", "target_slug": "...", "evidence_verse_id": "b.BOOK.CHAPTER.VERSE" }',
+    '    {',
+    '      "source_slug": "...",',
+    '      "relation_type": "FATHER_OF|MOTHER_OF|SON_OF|DAUGHTER_OF|SPOUSE_OF|BROTHER_OF|SISTER_OF|TRAVELS_TO|LOCATED_IN|FOLLOWER_OF|INTERACTS_WITH|EVENT_AT",',
+    '      "target_slug": "...",',
+    '      "source_type": "Person|Location",',
+    '      "target_type": "Person|Location",',
+    '      "justification": "...",',
+    '      "evidence_verse_id": "b.BOOK.CHAPTER.VERSE"',
+    '    }',
     '  ]',
     '}',
     '__JSON_END__',
@@ -323,7 +348,32 @@ function normalizeSlug(input: unknown, fallback = 'unknown'): string {
   return slugify(base)
 }
 
-function normalizeRelationType(input: unknown): z.infer<typeof RelationTypeEnum> {
+function normalizeEntityType(input: unknown): EntityType | undefined {
+  const normalized = readString(input, '')
+  if (!normalized) return undefined
+
+  const aliases: Record<string, EntityType> = {
+    PERSON: 'Person',
+    PERSONNE: 'Person',
+    LOCATION: 'Location',
+    LIEU: 'Location',
+    OBJECT: 'Object',
+    OBJET: 'Object',
+    EVENT: 'Event',
+    EVENEMENT: 'Event'
+  }
+
+  const key = normalized
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toUpperCase()
+
+  const candidate = aliases[key] ?? normalized
+  const parsed = EntityTypeEnum.safeParse(candidate)
+  return parsed.success ? parsed.data : undefined
+}
+
+function normalizeRelationType(input: unknown): RelationType {
   const raw = readString(input, '')
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
@@ -331,7 +381,7 @@ function normalizeRelationType(input: unknown): z.infer<typeof RelationTypeEnum>
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
 
-  const aliases: Record<string, z.infer<typeof RelationTypeEnum>> = {
+  const aliases: Record<string, RelationType> = {
     // Movement / French
     ALLER_EN: 'TRAVELS_TO',
     SE_REND_A: 'TRAVELS_TO',
@@ -353,7 +403,7 @@ function normalizeRelationType(input: unknown): z.infer<typeof RelationTypeEnum>
     SITUATED_IN: 'LOCATED_IN',
     LIVES_IN: 'LOCATED_IN',
     DWELLS_IN: 'LOCATED_IN',
-    // Narrative interactions — prevent misuse of OWNED_BY
+    // Narrative interactions
     TAKES: 'TAKES_INTO_HOUSE',
     TOOK: 'TAKES_INTO_HOUSE',
     PREND: 'TAKES_INTO_HOUSE',
@@ -405,6 +455,7 @@ function normalizeRelationType(input: unknown): z.infer<typeof RelationTypeEnum>
     SERVITEUR_DE: 'SERVANT_OF',
     PROPHETE_DE: 'PROPHET_OF',
     DISCIPLE_DE: 'FOLLOWER_OF',
+    DISCIPLE_OF: 'FOLLOWER_OF',
     ENNEMI_DE: 'ENEMY_OF',
     ALLIE_DE: 'ALLY_OF'
   }
@@ -428,6 +479,142 @@ const KINSHIP_RELATIONS = new Set<string>([
   'DESCENDANT_OF'
 ])
 
+const METAPHORIC_SPOUSE_SLUGS = new Set<string>([
+  'diable',
+  'satan',
+  'satanas',
+  'esprit',
+  'esprit-saint',
+  'saint-esprit'
+])
+
+const GENERIC_EVENT_TARGET_SLUGS = new Set<string>([
+  'roc',
+  'rocher',
+  'sable',
+  'foule',
+  'multitude'
+])
+
+function isJesusLike(value: string): boolean {
+  const s = slugify(value)
+  return s === 'jesus' || s === 'jesus-christ' || s.startsWith('jesus-')
+}
+
+function isMetaphoricSpouse(value: string): boolean {
+  return METAPHORIC_SPOUSE_SLUGS.has(slugify(value))
+}
+
+function isGenericEventTarget(value: string): boolean {
+  return GENERIC_EVENT_TARGET_SLUGS.has(slugify(value))
+}
+
+function normalizeText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim()
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function relationDirectionFromJustification(
+  relationType: RelationType,
+  sourceName: string,
+  targetName: string,
+  justification?: string
+): RelationType {
+  if (!justification) return relationType
+
+  const j = normalizeText(justification)
+  const source = escapeRegex(normalizeText(sourceName).replace(/-/g, ' '))
+  const target = escapeRegex(normalizeText(targetName).replace(/-/g, ' '))
+
+  if (relationType === 'FATHER_OF') {
+    const sourceAsChild = new RegExp(`${source}.*(fils|fille|descendant).*(de|du|d').*${target}`)
+    if (sourceAsChild.test(j)) return 'SON_OF'
+  }
+
+  if (relationType === 'SON_OF') {
+    const sourceAsParent = new RegExp(`${source}.*(pere|mere|ancetre).*(de|du|d').*${target}`)
+    if (sourceAsParent.test(j)) return 'FATHER_OF'
+  }
+
+  return relationType
+}
+
+function isRelevantObjectEntity(entity: RawEntity): boolean {
+  if (entity.type !== 'Object') return true
+  const s = slugify(entity.slug || entity.name)
+  if (IMPORTANT_OBJECT_WHITELIST.has(s)) return true
+  return !NOISY_OBJECT_SLUGS.has(s)
+}
+
+function sanitizeRelations(entities: RawEntity[], relations: RelationCandidate[]): RawRelation[] {
+  const entityBySlug = new Map<string, RawEntity>()
+  for (const entity of entities) entityBySlug.set(entity.slug, entity)
+
+  const out: RawRelation[] = []
+  const seen = new Set<string>()
+
+  for (const relation of relations) {
+    const sourceEntity = entityBySlug.get(relation.source_slug)
+    const targetEntity = entityBySlug.get(relation.target_slug)
+    if (!sourceEntity || !targetEntity) continue
+
+    // Strategy 1: strict typed endpoints (Person|Location only)
+    const sourceType = relation.source_type ?? sourceEntity.type
+    const targetType = relation.target_type ?? targetEntity.type
+    if (!ENDPOINT_TYPES.has(sourceType) || !ENDPOINT_TYPES.has(targetType)) continue
+
+    // Strategy 1: closed relation list
+    if (!STRICT_RELATION_TYPES.has(relation.relation_type as RelationType)) continue
+
+    const sourceName = sourceEntity.name || relation.source_slug
+    const targetName = targetEntity.name || relation.target_slug
+
+    let relType = relation.relation_type
+
+    // Existing correction + strategy 3 (directionality by justification)
+    if (relType === 'FATHER_OF' && isJesusLike(sourceName) && !isJesusLike(targetName)) {
+      relType = 'SON_OF'
+    }
+
+    relType = relationDirectionFromJustification(
+      relType as RelationType,
+      sourceName,
+      targetName,
+      relation.justification
+    )
+
+    // Strategy 2: metaphoric/circumstantial noise
+    if (relType === 'SPOUSE_OF' && (isMetaphoricSpouse(sourceName) || isMetaphoricSpouse(targetName))) {
+      continue
+    }
+
+    if (relType === 'EVENT_AT' && isGenericEventTarget(targetName)) {
+      continue
+    }
+
+    const current: RawRelation = {
+      source_slug: relation.source_slug,
+      relation_type: relType,
+      target_slug: relation.target_slug,
+      evidence_verse_id: relation.evidence_verse_id
+    }
+
+    const key = `${current.source_slug}|${current.relation_type}|${current.target_slug}|${current.evidence_verse_id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(current)
+  }
+
+  return out
+}
+
 function buildKinshipSignature(chapter: ChapterGraph, slug: string): Set<string> {
   const sig = new Set<string>()
 
@@ -448,7 +635,6 @@ function buildKinshipSignature(chapter: ChapterGraph, slug: string): Set<string>
 function hasKinshipConflict(existingSig: Set<string>, incomingSig: Set<string>): boolean {
   if (existingSig.size === 0 || incomingSig.size === 0) return false
 
-  // If there is no overlap at all while both have kinship context, treat as risky merge.
   for (const item of incomingSig) {
     if (existingSig.has(item)) return false
   }
@@ -471,18 +657,10 @@ function makeDisambiguatedSlug(baseSlug: string, sourceVerseId: string, used: Se
   return candidate
 }
 
-/**
- * Merges entities across chapters using O(1) in-memory indexing:
- * - slugIndex  : slug -> entity
- * - aliasIndex : normalized alias/name -> slug
- *
- * Adds a kinship-context guard to reduce homonym collisions.
- */
 export function mergeEntities(chapters: ChapterGraph[]): Map<string, RawEntity> {
-  // Bidirectional indexes for fast lookups (O(1))
-  const slugIndex = new Map<string, RawEntity>() // slug -> entity
-  const aliasIndex = new Map<string, string>()   // alias/name -> slug
-  const ambiguousAliases = new Set<string>()     // aliases that map to multiple entities
+  const slugIndex = new Map<string, RawEntity>()
+  const aliasIndex = new Map<string, string>()
+  const ambiguousAliases = new Set<string>()
   const kinshipBySlug = new Map<string, Set<string>>()
 
   const usedSlugs = new Set<string>()
@@ -490,7 +668,6 @@ export function mergeEntities(chapters: ChapterGraph[]): Map<string, RawEntity> 
   const registerAlias = (alias: string, slug: string): void => {
     const key = slugify(alias)
     if (!key) return
-
     if (ambiguousAliases.has(key)) return
 
     const existing = aliasIndex.get(key)
@@ -500,7 +677,6 @@ export function mergeEntities(chapters: ChapterGraph[]): Map<string, RawEntity> 
     }
 
     if (existing !== slug) {
-      // Alias points to different slugs -> mark ambiguous and remove mapping
       aliasIndex.delete(key)
       ambiguousAliases.add(key)
     }
@@ -510,7 +686,6 @@ export function mergeEntities(chapters: ChapterGraph[]): Map<string, RawEntity> 
     slugIndex.set(slug, { ...entity, slug })
     usedSlugs.add(slug)
 
-    // Register both slug and name as aliases
     registerAlias(slug, slug)
     registerAlias(entity.name, slug)
 
@@ -525,10 +700,8 @@ export function mergeEntities(chapters: ChapterGraph[]): Map<string, RawEntity> 
       const nameKey = slugify(entity.name)
       const kinshipSig = buildKinshipSignature(chapter, rawSlug)
 
-      // 1) Direct slug lookup (O(1))
       let resolvedSlug: string | undefined = slugIndex.has(rawSlug) ? rawSlug : undefined
 
-      // 2) Alias lookup (O(1))
       if (!resolvedSlug && nameKey && !ambiguousAliases.has(nameKey)) {
         const viaAlias = aliasIndex.get(nameKey)
         if (viaAlias && slugIndex.has(viaAlias)) {
@@ -536,7 +709,6 @@ export function mergeEntities(chapters: ChapterGraph[]): Map<string, RawEntity> 
         }
       }
 
-      // New entity
       if (!resolvedSlug) {
         upsertEntity(rawSlug, entity, kinshipSig)
         continue
@@ -552,14 +724,10 @@ export function mergeEntities(chapters: ChapterGraph[]): Map<string, RawEntity> 
       const existingSig = kinshipBySlug.get(resolvedSlug) ?? new Set<string>()
       const kinshipConflict = hasKinshipConflict(existingSig, kinshipSig)
 
-      // Homonym protection:
-      // - different names on same slug OR
-      // - same name but conflicting kinship context
       if (!sameName || kinshipConflict) {
         const disambiguated = makeDisambiguatedSlug(rawSlug, entity.source_verse_id, usedSlugs)
         upsertEntity(disambiguated, { ...entity, slug: disambiguated }, kinshipSig)
 
-        // same visible name for multiple entities => alias is ambiguous
         if (nameKey) {
           aliasIndex.delete(nameKey)
           ambiguousAliases.add(nameKey)
@@ -567,16 +735,13 @@ export function mergeEntities(chapters: ChapterGraph[]): Map<string, RawEntity> 
         continue
       }
 
-      // Safe merge (same person): keep richest description
       if (entity.description.length > existing.description.length) {
         slugIndex.set(resolvedSlug, { ...existing, description: entity.description })
       }
 
-      // Merge kinship context
       for (const s of kinshipSig) existingSig.add(s)
       kinshipBySlug.set(resolvedSlug, existingSig)
 
-      // Keep aliases fresh
       registerAlias(entity.name, resolvedSlug)
       registerAlias(rawSlug, resolvedSlug)
     }
@@ -594,29 +759,57 @@ function normalizeGraphPayload(
   const entitiesRaw = Array.isArray(payload.entities) ? payload.entities : []
   const relationsRaw = Array.isArray(payload.relations) ? payload.relations : []
 
-  return {
-    entities: entitiesRaw.map((item) => {
+  const entities = entitiesRaw
+    .map((item) => {
       const e = isRecord(item) ? item : {}
       const name = readString(e.name, '')
-      const entityType = EntityTypeEnum.safeParse(e.type)
+      const entityType = normalizeEntityType(e.type)
 
       return {
         name,
-        type: entityType.success ? entityType.data : 'Event',
+        type: entityType ?? 'Event',
         description: readString(e.description, ''),
         slug: normalizeSlug(e.slug, name || 'unknown'),
         source_verse_id: readString(e.source_verse_id, fallbackVerseId)
-      }
-    }),
-    relations: relationsRaw.map((item) => {
+      } satisfies RawEntity
+    })
+    .filter((e) => e.name.length > 0)
+    .filter(isRelevantObjectEntity)
+
+  const entityTypeBySlug = new Map<string, EntityType>()
+  for (const entity of entities) entityTypeBySlug.set(entity.slug, entity.type)
+
+  const relationCandidates: RelationCandidate[] = relationsRaw
+    .map((item) => {
       const r = isRecord(item) ? item : {}
+
+      const source_slug = normalizeSlug(r.source_slug, 'source')
+      const target_slug = normalizeSlug(r.target_slug, 'target')
+      const relation_type = normalizeRelationType(r.relation_type)
+
+      const inferredSourceType = entityTypeBySlug.get(source_slug)
+      const inferredTargetType = entityTypeBySlug.get(target_slug)
+
+      const source_type = normalizeEntityType(r.source_type) ?? inferredSourceType
+      const target_type = normalizeEntityType(r.target_type) ?? inferredTargetType
+
       return {
-        source_slug: normalizeSlug(r.source_slug, 'source'),
-        relation_type: normalizeRelationType(r.relation_type),
-        target_slug: normalizeSlug(r.target_slug, 'target'),
+        source_slug,
+        relation_type,
+        target_slug,
+        source_type,
+        target_type,
+        justification: readString(r.justification, ''),
         evidence_verse_id: readString(r.evidence_verse_id, fallbackVerseId)
       }
     })
+    .filter((r) => !!r.source_slug && !!r.target_slug && !!r.evidence_verse_id)
+
+  const relations = sanitizeRelations(entities, relationCandidates)
+
+  return {
+    entities,
+    relations
   }
 }
 
@@ -710,7 +903,6 @@ export async function runExtractionPipeline(options: RunOptions): Promise<RawGra
     )
   }
 
-  // Create queue with configured delay
   const queue = new PQueue({
     concurrency: 1,
     interval: delayMs,
@@ -720,7 +912,6 @@ export async function runExtractionPipeline(options: RunOptions): Promise<RawGra
   const chapters: ChapterGraph[] = []
   let rateLimitHit = false
 
-  // Map chapters to queue tasks
   const tasks = grouped.map((chapter, i) =>
     queue.add(async () => {
       if (rateLimitHit) return null
@@ -775,7 +966,6 @@ export async function runExtractionPipeline(options: RunOptions): Promise<RawGra
     })
   )
 
-  // Wait for all tasks
   const results = await Promise.all(tasks)
   chapters.push(...results.filter((ch): ch is ChapterGraph => ch !== null))
 
@@ -804,15 +994,16 @@ export function createCopilotLlmClient(githubToken: string, model = 'gpt-4o'): L
     temperature: 0,
     openAIApiKey: 'none',
     configuration: {
-      baseURL: "https://models.github.ai/inference",
+      baseURL: 'https://models.github.ai/inference',
       defaultHeaders: {
-        "Accept": "application/vnd.github+json",
-        "Authorization": `Bearer ${githubToken}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json"
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${githubToken}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json'
       }
     }
-  } as Omit<ChatOpenAIFields, "model">);
+  } as Omit<ChatOpenAIFields, 'model'>)
+
   return {
     async invoke(prompt: string): Promise<string> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -823,8 +1014,10 @@ export function createCopilotLlmClient(githubToken: string, model = 'gpt-4o'): L
             'Noms bibliques français.',
             'Descriptions courtes en français.',
             'Types autorisés: Person, Location, Object, Event.',
-            'relation_type en MAJUSCULES FR (ex: PERE_DE, EPOUX_DE, VOYAGE_VERS).',
-            'Aucun anglais dans les champs de contenu.',
+            'Relations AUTORISÉES uniquement: FATHER_OF, MOTHER_OF, SON_OF, DAUGHTER_OF, SPOUSE_OF, BROTHER_OF, SISTER_OF, TRAVELS_TO, LOCATED_IN, FOLLOWER_OF, INTERACTS_WITH, EVENT_AT.',
+            'Chaque relation doit inclure source_type/target_type (Person|Location) et justification.',
+            'Ne pas extraire les objets inanimés non pivots (sable, roc, foule, vêtements...).',
+            'Ne pas créer de SPOUSE_OF/relations familiales entre ennemis (ex: Jésus/diable).',
             'Retourne uniquement un JSON valide.'
           ].join(' ')
         ),
@@ -834,7 +1027,7 @@ export function createCopilotLlmClient(githubToken: string, model = 'gpt-4o'): L
       const content = response.content
       return typeof content === 'string' ? content : JSON.stringify(content)
     }
-  };
+  }
 }
 
 export async function main(): Promise<void> {
