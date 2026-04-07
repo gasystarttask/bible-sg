@@ -140,7 +140,7 @@ export function buildGroundedSystemPrompt(): string {
   ].join(" ");
 }
 
-function buildGroundedStreamingSystemPrompt(): string {
+export function buildGroundedStreamingSystemPrompt(): string {
   return [
     "Rôle : Assistant biblique universitaire.",
     "Ta base de connaissances est UNIQUEMENT le Contexte fourni (Écritures + Graphe de connaissances).",

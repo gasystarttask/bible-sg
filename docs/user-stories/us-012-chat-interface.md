@@ -8,9 +8,9 @@
 
 ## 🎯 Acceptance Criteria
 
-- [ ] **Streaming UI:** Implement real-time response streaming using Vercel AI SDK's `useChat`.
-- [ ] **Interactive Citations:** Automatically turn text like `(Gen 12:1)` into clickable components.
-- [ ] **Source Preview:** Show the full verse text in a side panel or tooltip when a citation is clicked.
+- [x] **Streaming UI:** Implement real-time response streaming using Vercel AI SDK's `useChat`.
+- [x] **Interactive Citations:** Automatically turn text like `(Gen 12:1)` into clickable components.
+- [x] **Source Preview:** Show the full verse text in a side panel or tooltip when a citation is clicked.
 
 ---
 
@@ -31,4 +31,4 @@
 
 **Priority:** High  
 **Estimation:** 8 Story Points  
-**Status:** 📥 `to-do`
+**Status:** ✅ `done`

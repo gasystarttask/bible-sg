@@ -1,177 +1,342 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import type { GroundedAnswerResponse } from "@search/types/grounded-answer";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
+import { AnimatePresence, motion } from "framer-motion";
 
-type StreamEventName = "status" | "token" | "replace" | "metadata" | "done" | "error";
+type VersePreview = {
+  reference: string;
+  text: string;
+  book?: string;
+  chapter?: number;
+  verse?: number;
+  metadata?: {
+    testament?: string;
+    version?: string;
+  } | null;
+};
 
-interface ParsedEvent {
-  name: StreamEventName;
-  data: unknown;
-}
+type ChatPart = {
+  type?: string;
+  text?: string;
+};
 
-function parseSseBlock(block: string): ParsedEvent | null {
-  const lines = block.split("\n").map((line) => line.trim());
-  const eventLine = lines.find((line) => line.startsWith("event:"));
-  const dataLine = lines.find((line) => line.startsWith("data:"));
-  if (!eventLine || !dataLine) return null;
+const CITATION_REGEX = /(\[([^\]]+\d+:\d+(?:-\d+)?)\]|\(([^\)]+\d+:\d+(?:-\d+)?)\)|\*\*([^\*]+\d+:\d+(?:-\d+)?)\*\*)/g;
 
-  const name = eventLine.replace("event:", "").trim() as StreamEventName;
-  const dataRaw = dataLine.replace("data:", "").trim();
-
-  try {
-    return { name, data: JSON.parse(dataRaw) };
-  } catch {
+function parseRetryAfterSeconds(value: string | null | undefined): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     return null;
   }
+
+  return Math.floor(parsed);
+}
+
+function extractRetryAfterFromMessage(message: string): number | null {
+  const match = message.match(/retry in\s+(\d+)s/i);
+  if (!match) {
+    return null;
+  }
+
+  return parseRetryAfterSeconds(match[1]);
+}
+
+function getMessageText(message: { parts?: ChatPart[]; content?: string }): string {
+  if (typeof message.content === "string") {
+    return message.content;
+  }
+
+  const parts = Array.isArray(message.parts) ? message.parts : [];
+  return parts
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text ?? "")
+    .join("");
+}
+
+function renderMessageWithCitations(
+  text: string,
+  onCitationClick: (reference: string) => void
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let index = 0;
+
+  for (const match of text.matchAll(CITATION_REGEX)) {
+    const full = match[1];
+    const captured = (match[2] ?? match[3] ?? match[4] ?? "").trim();
+    if (!full || !captured || match.index == null) continue;
+
+    const start = match.index;
+    if (start > lastIndex) {
+      nodes.push(<Fragment key={`text-${index}`}>{text.slice(lastIndex, start)}</Fragment>);
+      index += 1;
+    }
+
+    // Display text: use the captured reference (without delimiters)
+    const displayText = captured.startsWith("**") ? captured.slice(2, -2) : captured;
+
+    nodes.push(
+      <button
+        key={`cite-${captured}-${index}`}
+        type="button"
+        onClick={() => onCitationClick(captured)}
+        className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+      >
+        {displayText}
+      </button>
+    );
+
+    index += 1;
+    lastIndex = start + full.length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(<Fragment key={`text-tail-${index}`}>{text.slice(lastIndex)}</Fragment>);
+  }
+
+  return nodes.length ? nodes : [text];
 }
 
 export default function Home() {
-  const [query, setQuery] = useState("Qui est Jésus ?");
-  const [answer, setAnswer] = useState("");
-  const [citations, setCitations] = useState<string[]>([]);
-  const [metadata, setMetadata] = useState<GroundedAnswerResponse["metadata"] | null>(null);
-  const [phase, setPhase] = useState("idle");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState("Qui est Jesus ?");
+  const [selectedCitation, setSelectedCitation] = useState<string | null>(null);
+  const [preview, setPreview] = useState<VersePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
-  const canSubmit = useMemo(() => !isLoading && query.trim().length > 0, [isLoading, query]);
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        fetch: async (input, init) => {
+          const response = await fetch(input, init);
+
+          if (response.status === 429) {
+            const retryAfterHeader = parseRetryAfterSeconds(response.headers.get("Retry-After"));
+
+            let retryAfterBody: number | null = null;
+            try {
+              const payload = (await response.clone().json()) as { error?: string };
+              retryAfterBody = payload.error ? extractRetryAfterFromMessage(payload.error) : null;
+            } catch {
+              retryAfterBody = null;
+            }
+
+            setCooldownSeconds(retryAfterHeader ?? retryAfterBody ?? 60);
+          }
+
+          return response;
+        },
+      }),
+    []
+  );
+
+  const { messages, sendMessage, status, error, clearError } = useChat({
+    transport,
+  });
+
+  useEffect(() => {
+    if (cooldownSeconds <= 0) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setCooldownSeconds((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [cooldownSeconds]);
+
+  useEffect(() => {
+    if (cooldownSeconds === 0 && error) {
+      clearError();
+    }
+  }, [clearError, cooldownSeconds, error]);
+
+  const isRetrieving = status === "submitted";
+  const isStreaming = status === "streaming";
+  const canSubmit = useMemo(() => status === "ready" && cooldownSeconds === 0, [cooldownSeconds, status]);
+
+  async function openCitation(reference: string) {
+    setSelectedCitation(reference);
+    setPreviewLoading(true);
+    setPreviewError(null);
+
+    try {
+      const res = await fetch(`/api/verse-preview?reference=${encodeURIComponent(reference)}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? "Impossible de charger ce verset.");
+      }
+
+      const body = (await res.json()) as VersePreview;
+      setPreview(body);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erreur inconnue";
+      setPreviewError(message);
+      setPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    setIsLoading(true);
-    setPhase("retrieval");
-    setAnswer("");
-    setCitations([]);
-    setMetadata(null);
-    setError(null);
+    const trimmed = draft.trim();
+    if (!trimmed || !canSubmit) return;
 
-    try {
-      const response = await fetch("/api/grounded-answer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: query.trim(), stream: true }),
-      });
-
-      if (!response.ok) {
-        const fallback = await response.json().catch(() => ({}));
-        throw new Error(fallback?.error ?? "Request failed.");
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("Streaming not supported by this browser.");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const blocks = buffer.split("\n\n");
-        buffer = blocks.pop() ?? "";
-
-        for (const block of blocks) {
-          const parsed = parseSseBlock(block);
-          if (!parsed) continue;
-
-          if (parsed.name === "status") {
-            const payload = parsed.data as { phase?: string };
-            if (payload.phase === "retrieval_started") setPhase("retrieval");
-            if (payload.phase === "generation_started") setPhase("generation");
-          }
-
-          if (parsed.name === "token") {
-            const payload = parsed.data as { token?: string };
-            if (payload.token) setAnswer((prev) => prev + payload.token);
-          }
-
-          if (parsed.name === "replace") {
-            const payload = parsed.data as { answer?: string };
-            if (payload.answer) setAnswer(payload.answer);
-          }
-
-          if (parsed.name === "metadata") {
-            const payload = parsed.data as GroundedAnswerResponse;
-            setCitations(payload.citations ?? []);
-            setMetadata(payload.metadata ?? null);
-          }
-
-          if (parsed.name === "error") {
-            const payload = parsed.data as { error?: string };
-            setError(payload.error ?? "Stream interrupted.");
-          }
-
-          if (parsed.name === "done") {
-            setPhase("done");
-            setIsLoading(false);
-          }
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unexpected error";
-      setError(message);
-      setIsLoading(false);
-      setPhase("error");
-    }
+    setDraft("");
+    await sendMessage({ text: trimmed });
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-amber-50 via-stone-50 to-lime-50 px-4 py-8 text-stone-900">
-      <div className="mx-auto w-full max-w-3xl rounded-2xl border border-stone-300 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold tracking-tight">Bible Grounded Assistant</h1>
-        <p className="mt-2 text-sm text-stone-600">
-          Streaming response mode: retrieval phase first, then token-by-token answer generation.
-        </p>
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#fef3c7,#fff7ed_35%,#f8fafc)] px-3 py-6 text-stone-900 sm:px-6">
+      <div className="mx-auto grid w-full max-w-6xl gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="rounded-2xl border border-stone-200 bg-white/90 p-4 shadow-sm sm:p-6">
+          <header className="mb-4 border-b border-stone-200 pb-3">
+            <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Bible Chat Scholar</h1>
+            <p className="mt-1 text-sm text-stone-600">
+              Reponse en streaming avec citations bibliques interactives.
+            </p>
+          </header>
 
-        <form className="mt-5 flex gap-3" onSubmit={onSubmit}>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="flex-1 rounded-lg border border-stone-300 px-3 py-2 outline-none ring-amber-400 focus:ring"
-            placeholder="Pose une question biblique"
-          />
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="rounded-lg bg-stone-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-stone-400"
-          >
-            {isLoading ? "Streaming..." : "Envoyer"}
-          </button>
-        </form>
+          <div className="space-y-3">
+            {cooldownSeconds > 0 ? (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-xl border border-red-200 bg-red-50 p-3"
+              >
+                <p className="text-sm font-medium text-red-800">GitHub Models a temporairement limite ce token.</p>
+                <p className="mt-1 text-sm text-red-700">
+                  Nouvel essai possible dans {cooldownSeconds}s.
+                </p>
+              </motion.div>
+            ) : null}
 
-        {isLoading && phase === "retrieval" ? (
-          <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <div className="h-4 w-44 animate-pulse rounded bg-amber-200" />
-            <div className="mt-2 h-4 w-full animate-pulse rounded bg-amber-100" />
-            <div className="mt-2 h-4 w-10/12 animate-pulse rounded bg-amber-100" />
+            <AnimatePresence initial={false}>
+              {messages.map((message) => {
+                const isAssistant = message.role === "assistant";
+                const bubbleClass = isAssistant
+                  ? "border-amber-200 bg-amber-50"
+                  : "border-stone-300 bg-stone-100";
+                const text = getMessageText(message);
+
+                return (
+                  <motion.article
+                    key={message.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className={`rounded-xl border p-3 ${bubbleClass}`}
+                  >
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-stone-500">
+                      {isAssistant ? "Assistant" : "Vous"}
+                    </p>
+                    <p className="whitespace-pre-wrap wrap-break-word leading-7">
+                      {isAssistant ? renderMessageWithCitations(text, openCitation) : text}
+                    </p>
+                  </motion.article>
+                );
+              })}
+            </AnimatePresence>
+
+            {isRetrieving ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="rounded-xl border border-amber-200 bg-amber-50 p-3"
+              >
+                <p className="text-sm font-medium text-amber-900">Recherche du contexte biblique...</p>
+                <div className="mt-2 h-3 w-3/4 animate-pulse rounded bg-amber-200" />
+                <div className="mt-2 h-3 w-5/6 animate-pulse rounded bg-amber-100" />
+              </motion.div>
+            ) : null}
+
+            {isStreaming ? (
+              <p className="text-xs text-stone-500">L&apos;assistant ecrit en temps reel...</p>
+            ) : null}
+
+            {error ? (
+              <p className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+                {error.message}
+              </p>
+            ) : null}
           </div>
-        ) : null}
 
-        <section className="mt-5 rounded-lg border border-stone-200 bg-stone-50 p-4">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-stone-600">Answer</h2>
-          <p className="mt-2 whitespace-pre-wrap leading-7">{answer || "..."}</p>
+          <form className="mt-5 flex flex-col gap-2 border-t border-stone-200 pt-4 sm:flex-row" onSubmit={onSubmit}>
+            <input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Posez une question biblique (ex: Qui est Jesus ?)"
+              className="min-w-0 flex-1 rounded-lg border border-stone-300 px-3 py-2 outline-none ring-amber-400 focus:ring"
+            />
+            <button
+              type="submit"
+              disabled={!canSubmit || !draft.trim()}
+              className="rounded-lg bg-stone-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-stone-400"
+            >
+              {cooldownSeconds > 0 ? `Réessayer dans ${cooldownSeconds}s` : isStreaming || isRetrieving ? "En cours..." : "Envoyer"}
+            </button>
+          </form>
         </section>
 
-        <section className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-4">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-stone-600">Citations</h2>
-          <p className="mt-2 text-sm">{citations.length ? citations.join(" | ") : "Aucune citation"}</p>
-        </section>
+        <aside className="rounded-2xl border border-stone-200 bg-white/90 p-4 shadow-sm sm:p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Apercu source</h2>
+          {!selectedCitation ? (
+            <p className="mt-3 text-sm text-stone-500">
+              Cliquez sur une citation comme [Genese 46:19] pour voir le texte complet.
+            </p>
+          ) : null}
 
-        {metadata ? (
-          <section className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-4 text-sm text-stone-700">
-            <p>Model: {metadata.model}</p>
-            <p>Prompt: {metadata.promptVersion}</p>
-            <p>Source: {metadata.source}</p>
-            <p>Processing: {metadata.processingTimeMs} ms</p>
-          </section>
-        ) : null}
+          {selectedCitation ? (
+            <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-stone-500">Citation</p>
+              <p className="text-sm font-medium text-stone-800">{selectedCitation}</p>
+            </div>
+          ) : null}
 
-        {error ? <p className="mt-4 text-sm text-red-700">{error}</p> : null}
+          {previewLoading ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <div className="h-3 w-20 animate-pulse rounded bg-amber-200" />
+              <div className="mt-2 h-3 w-full animate-pulse rounded bg-amber-100" />
+              <div className="mt-2 h-3 w-5/6 animate-pulse rounded bg-amber-100" />
+            </div>
+          ) : null}
+
+          {previewError ? (
+            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+              {previewError}
+            </p>
+          ) : null}
+
+          {preview ? (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3"
+            >
+              <p className="text-xs uppercase tracking-wide text-emerald-700">Reference</p>
+              <p className="text-sm font-semibold text-emerald-900">{preview.reference}</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-emerald-900">{preview.text}</p>
+              {preview.metadata?.version ? (
+                <p className="mt-2 text-xs text-emerald-700">Version: {preview.metadata.version}</p>
+              ) : null}
+            </motion.div>
+          ) : null}
+        </aside>
       </div>
     </main>
   );
