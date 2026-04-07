@@ -6,13 +6,13 @@ vi.mock("@search/lib/rate-limit", () => ({
   rateLimit: vi.fn().mockReturnValue({ success: true }),
 }));
 
-const { retrieveMock, HybridRetrieverMock, getDbMock } = vi.hoisted(() => {
+const { retrieveMock, HybridRetrieverMock, getDbMock, routeQueryMock } = vi.hoisted(() => {
   const retrieveMock = vi.fn().mockResolvedValue({
     verses: [],
     entityFacts: [],
     metadata: {
-      vectorWeight: 0.7,
-      graphWeight: 0.3,
+      vectorWeight: 0.9,
+      graphWeight: 0.1,
       totalVectorResults: 0,
       totalGraphResults: 0,
     },
@@ -24,7 +24,18 @@ const { retrieveMock, HybridRetrieverMock, getDbMock } = vi.hoisted(() => {
 
   const getDbMock = vi.fn().mockResolvedValue({});
 
-  return { retrieveMock, HybridRetrieverMock, getDbMock };
+  const routeQueryMock = vi.fn().mockResolvedValue({
+    intent: "THEOLOGY",
+    source: "heuristic",
+    reasoning: "Heuristic route selected intent THEOLOGY from query keywords.",
+    latencyMs: 0,
+    vectorWeight: 0.9,
+    graphWeight: 0.1,
+    k: 5,
+    filters: undefined,
+  });
+
+  return { retrieveMock, HybridRetrieverMock, getDbMock, routeQueryMock };
 });
 
 vi.mock("@search/lib/rate-limit", () => ({
@@ -37,6 +48,10 @@ vi.mock("@search/lib/mongodb", () => ({
 
 vi.mock("@search/lib/hybrid-retriever", () => ({
   HybridRetriever: HybridRetrieverMock,
+}));
+
+vi.mock("@search/lib/query-router", () => ({
+  routeQuery: routeQueryMock,
 }));
 
 function buildRequest(body: object): NextRequest {
@@ -84,13 +99,13 @@ describe("POST /api/hybrid-search", () => {
     expect(json).toHaveProperty("metadata");
   });
 
-  it("returns 200 and applies default weights (0.7 / 0.3)", async () => {
+  it("returns 200 and applies routed weights", async () => {
     const POST = await getPOST();
     const res = await POST(buildRequest({ query: "Abraham's journey" }));
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.metadata.vectorWeight).toBe(0.7);
-    expect(json.metadata.graphWeight).toBe(0.3);
+    expect(json.metadata.vectorWeight).toBe(0.9);
+    expect(json.metadata.graphWeight).toBe(0.1);
   });
 
   it("returns 200 with filters applied", async () => {
@@ -119,14 +134,65 @@ describe("POST /api/hybrid-search", () => {
     expect(res.status).toBe(200);
     expect(getDbMock).toHaveBeenCalledTimes(1);
     expect(HybridRetrieverMock).toHaveBeenCalledTimes(1);
+    expect(routeQueryMock).toHaveBeenCalledWith({
+      query: "Abraham's journey",
+      requested: {
+        k: undefined,
+        vectorWeight: undefined,
+        graphWeight: undefined,
+        filters: undefined,
+      },
+    });
 
     expect(retrieveMock).toHaveBeenCalledWith(
     "Abraham's journey",
     5,
-    0.7,
-    0.3,
+    0.9,
+    0.1,
     0.0,
     undefined
+    );
+  });
+
+  it("returns response metadata with routing plan", async () => {
+    const POST = await getPOST();
+    const res = await POST(buildRequest({ query: "What does the Bible say about perseverance?" }));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.metadata.routing).toEqual({
+      intent: "THEOLOGY",
+      source: "heuristic",
+      reasoning: "Heuristic route selected intent THEOLOGY from query keywords.",
+      latencyMs: 0,
+      filters: undefined,
+      k: 5,
+    });
+  });
+
+  it("uses routed filters from query router", async () => {
+    routeQueryMock.mockResolvedValueOnce({
+      intent: "GEOGRAPHY",
+      source: "llm",
+      reasoning: "Detected geography terms and Genesis context.",
+      latencyMs: 121,
+      vectorWeight: 0.5,
+      graphWeight: 0.5,
+      k: 8,
+      filters: { book: "Genesis", testament: "Old Testament" },
+    });
+
+    const POST = await getPOST();
+    const res = await POST(buildRequest({ query: "Abraham in Egypt within Genesis" }));
+
+    expect(res.status).toBe(200);
+    expect(retrieveMock).toHaveBeenCalledWith(
+      "Abraham in Egypt within Genesis",
+      8,
+      0.5,
+      0.5,
+      0.0,
+      { book: "Genesis", testament: "Old Testament" }
     );
   });
 });

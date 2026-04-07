@@ -1,12 +1,21 @@
+export type QueryIntent =
+  | "THEOLOGY"
+  | "GENEALOGY"
+  | "GEOGRAPHY"
+  | "CHRONOLOGY"
+  | "GENERAL";
+
+export interface HybridFilters {
+  testament?: "Old Testament" | "New Testament" | "Ancien Testament" | "Nouveau Testament";
+  book?: string;
+}
+
 export interface HybridSearchRequest {
   query: string;
   k?: number;
   vectorWeight?: number;
   graphWeight?: number;
-  filters?: {
-    testament?: "Old Testament" | "New Testament";
-    book?: string;
-  };
+  filters?: HybridFilters;
   minScore?: number;
 }
 
@@ -41,5 +50,13 @@ export interface HybridSearchResponse {
     totalVectorResults: number;
     totalGraphResults: number;
     processingTimeMs: number;
+    routing?: {
+      intent: QueryIntent;
+      source: "llm" | "heuristic";
+      reasoning: string;
+      latencyMs: number;
+      filters?: HybridFilters;
+      k: number;
+    };
   };
 }

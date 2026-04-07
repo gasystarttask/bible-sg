@@ -3,6 +3,7 @@ import { HybridRetriever } from "@search/lib/hybrid-retriever";
 import { HybridSearchRequest, HybridSearchResponse } from "@search/types/hybrid";
 import { rateLimit } from "@search/lib/rate-limit";
 import { getDb } from "@search/lib/mongodb";
+import { routeQuery } from "@search/lib/query-router";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const start = Date.now();
@@ -26,9 +27,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const {
     query,
-    k = 5,
-    vectorWeight = 0.7,
-    graphWeight = 0.3,
+    k,
+    vectorWeight,
+    graphWeight,
     filters,
     minScore = 0.0,
   } = body;
@@ -40,7 +41,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (vectorWeight + graphWeight !== 1.0) {
+  if (
+    vectorWeight != null &&
+    graphWeight != null &&
+    Number((vectorWeight + graphWeight).toFixed(3)) !== 1.0
+  ) {
     return NextResponse.json(
       { error: "'vectorWeight' + 'graphWeight' must equal 1.0." },
       { status: 400 }
@@ -49,16 +54,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // --- Execute Hybrid Retrieval ---
   try {
+    const routing = await routeQuery({
+      query: query.trim(),
+      requested: {
+        k,
+        vectorWeight,
+        graphWeight,
+        filters,
+      },
+    });
+
+    console.info("[hybrid-search][route-plan]", {
+      query: query.trim(),
+      intent: routing.intent,
+      source: routing.source,
+      reasoning: routing.reasoning,
+      vectorWeight: routing.vectorWeight,
+      graphWeight: routing.graphWeight,
+      k: routing.k,
+      filters: routing.filters,
+      latencyMs: routing.latencyMs,
+    });
+
     const db = await getDb()
     const retriever = new HybridRetriever(db);
 
     const result = await retriever.retrieve(
       query.trim(),
-      k,
-      vectorWeight,
-      graphWeight,
+      routing.k,
+      routing.vectorWeight,
+      routing.graphWeight,
       minScore,
-      filters
+      routing.filters
     );
 
     const processingTimeMs = Date.now() - start;
@@ -70,6 +97,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       metadata: {
         ...result.metadata,
         processingTimeMs,
+        routing: {
+          intent: routing.intent,
+          source: routing.source,
+          reasoning: routing.reasoning,
+          latencyMs: routing.latencyMs,
+          filters: routing.filters,
+          k: routing.k,
+        },
       },
     };
 
