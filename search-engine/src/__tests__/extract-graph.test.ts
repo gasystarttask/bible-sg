@@ -8,7 +8,7 @@ import {
   groupByBookChapter,
   mergeEntities,
   runExtractionPipeline
-} from './extract-graph'
+} from '../scripts/extract-graph'
 import {
   ChapterGraph,
   LlmClient,
