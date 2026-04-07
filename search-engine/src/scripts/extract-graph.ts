@@ -39,6 +39,8 @@ const ENDPOINT_TYPES = new Set<EntityType>(['Person', 'Location'])
 const STRICT_RELATION_TYPES = new Set<RelationType>([
   'FATHER_OF',
   'MOTHER_OF',
+  'SUCCESSOR_OF',
+  'ANOINTED_BY',
   'SON_OF',
   'DAUGHTER_OF',
   'SPOUSE_OF',
@@ -48,7 +50,12 @@ const STRICT_RELATION_TYPES = new Set<RelationType>([
   'LOCATED_IN',
   'FOLLOWER_OF',
   'INTERACTS_WITH',
-  'EVENT_AT'
+  'DESCRIBES_AS',
+  'FULFILLS',
+  'SYMBOLISES',
+  'EVENT_AT',
+  'SLAVE_OF',
+  'OPPOSES'
 ])
 
 const NOISY_OBJECT_SLUGS = new Set<string>([

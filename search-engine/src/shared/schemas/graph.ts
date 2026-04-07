@@ -29,6 +29,9 @@ export const RelationTypeEnum = z.enum([
   'MOTHER_OF',
   'SON_OF',
   'DAUGHTER_OF',
+  'SUCCESSOR_OF',
+  'ANOINTED_BY',
+  'DESCRIBES_AS',
   'SPOUSE_OF',
   'BROTHER_OF',
   'SISTER_OF',
@@ -55,7 +58,11 @@ export const RelationTypeEnum = z.enum([
   'FOLLOWER_OF',
   'ENEMY_OF',
   'ALLY_OF',
-  'CREATED_BY'
+  'CREATED_BY',
+  'FULFILLS', 
+  'SYMBOLISES', 
+  'SLAVE_OF', 
+  'OPPOSES'
 ])
 export type RelationType = z.infer<typeof RelationTypeEnum>
 
