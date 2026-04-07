@@ -2,6 +2,7 @@ import type { EntityFact, HybridFilters, HybridSearchResponse, VerseResult } fro
 
 export interface GroundedAnswerRequest {
   query: string;
+  stream?: boolean;
   retrieval?: {
     verses: VerseResult[];
     entityFacts: EntityFact[];

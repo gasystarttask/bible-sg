@@ -11,6 +11,7 @@ const {
   HybridRetrieverMock,
   routeQueryMock,
   generateGroundedAnswerMock,
+  generateGroundedAnswerStreamMock,
 } = vi.hoisted(() => {
   const getDbMock = vi.fn().mockResolvedValue({});
   const retrieveMock = vi.fn().mockResolvedValue({
@@ -55,19 +56,35 @@ const {
     promptVersion: "us-010.v2",
   });
 
+  const generateGroundedAnswerStreamMock = vi.fn().mockImplementation(async ({ onToken }) => {
+    onToken("Joseph ");
+    onToken("est fils de Jacob [Genèse 46:19].");
+    return {
+      answer: "Joseph est fils de Jacob [Genèse 46:19].",
+      citations: ["Genèse 46:19"],
+      uncertain: false,
+      model: "gpt-4o-mini",
+      promptVersion: "us-010.v2",
+    };
+  });
+
   return {
     getDbMock,
     retrieveMock,
     HybridRetrieverMock,
     routeQueryMock,
     generateGroundedAnswerMock,
+    generateGroundedAnswerStreamMock,
   };
 });
 
 vi.mock("@search/lib/mongodb", () => ({ getDb: getDbMock }));
 vi.mock("@search/lib/hybrid-retriever", () => ({ HybridRetriever: HybridRetrieverMock }));
 vi.mock("@search/lib/query-router", () => ({ routeQuery: routeQueryMock }));
-vi.mock("@search/lib/context-injection", () => ({ generateGroundedAnswer: generateGroundedAnswerMock }));
+vi.mock("@search/lib/context-injection", () => ({
+  generateGroundedAnswer: generateGroundedAnswerMock,
+  generateGroundedAnswerStream: generateGroundedAnswerStreamMock,
+}));
 
 function buildRequest(body: object): NextRequest {
   return new NextRequest("http://localhost:3000/api/grounded-answer", {
@@ -159,5 +176,36 @@ describe("POST /api/grounded-answer", () => {
     const json = await res.json();
     expect(json.metadata.uncertain).toBe(true);
     expect(json.citations).toHaveLength(0);
+  });
+
+  it("streams tokens and metadata when stream=true", async () => {
+    const POST = await getPOST();
+    const res = await POST(
+      buildRequest({
+        query: "Qui est le fils de Joseph ?",
+        stream: true,
+        retrieval: {
+          verses: [
+            {
+              id: "v1",
+              text: "Fils de Rachel, femme de Jacob: Joseph et Benjamin.",
+              reference: "Genèse 46:19",
+              score: 0.2,
+              source: "hybrid",
+            },
+          ],
+          entityFacts: [],
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+    const text = await res.text();
+    expect(text).toContain("event: token");
+    expect(text).toContain("event: metadata");
+    expect(text).toContain("Genèse 46:19");
+    expect(generateGroundedAnswerStreamMock).toHaveBeenCalledTimes(1);
   });
 });

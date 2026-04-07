@@ -3,8 +3,15 @@ import { HybridRetriever } from "@search/lib/hybrid-retriever";
 import { getDb } from "@search/lib/mongodb";
 import { rateLimit } from "@search/lib/rate-limit";
 import { routeQuery } from "@search/lib/query-router";
-import { generateGroundedAnswer } from "@search/lib/context-injection";
+import { generateGroundedAnswer, generateGroundedAnswerStream } from "@search/lib/context-injection";
 import type { GroundedAnswerRequest, GroundedAnswerResponse } from "@search/types/grounded-answer";
+
+type ResolvedContext = {
+  verses: NonNullable<GroundedAnswerRequest["retrieval"]>["verses"];
+  entityFacts: NonNullable<GroundedAnswerRequest["retrieval"]>["entityFacts"];
+  retrievalMetadata: GroundedAnswerResponse["metadata"]["retrieval"];
+  source: "provided-context" | "retrieved-context";
+};
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const start = Date.now();
@@ -26,6 +33,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const {
     query,
+    stream = false,
     retrieval,
     k,
     vectorWeight,
@@ -52,7 +60,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  try {
+  const resolveContext = async (): Promise<ResolvedContext> => {
     let verses = retrieval?.verses;
     let entityFacts = retrieval?.entityFacts;
     let retrievalMetadata = retrieval?.metadata;
@@ -98,6 +106,86 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       source = "retrieved-context";
     }
 
+    return { verses, entityFacts, retrievalMetadata, source };
+  };
+
+  try {
+    if (stream) {
+      const encoder = new TextEncoder();
+      const event = (name: string, payload: object): Uint8Array => {
+        return encoder.encode(`event: ${name}\ndata: ${JSON.stringify(payload)}\n\n`);
+      };
+
+      const readable = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(event("status", { phase: "retrieval_started" }));
+
+          try {
+            const { verses, entityFacts, retrievalMetadata, source } = await resolveContext();
+
+            controller.enqueue(
+              event("status", {
+                phase: "generation_started",
+                contextVerses: verses.length,
+                contextEntities: entityFacts.length,
+              })
+            );
+
+            let streamed = "";
+            const grounded = await generateGroundedAnswerStream({
+              query: query.trim(),
+              verses,
+              entityFacts,
+              onToken(token) {
+                streamed += token;
+                controller.enqueue(event("token", { token }));
+              },
+            });
+
+            if (grounded.answer !== streamed.trim()) {
+              controller.enqueue(event("replace", { answer: grounded.answer }));
+            }
+
+            const response: GroundedAnswerResponse = {
+              query: query.trim(),
+              answer: grounded.answer,
+              citations: grounded.citations,
+              metadata: {
+                model: grounded.model,
+                promptVersion: grounded.promptVersion,
+                uncertain: grounded.uncertain,
+                source,
+                contextVerses: verses.length,
+                contextEntities: entityFacts.length,
+                processingTimeMs: Date.now() - start,
+                retrieval: retrievalMetadata,
+              },
+            };
+
+            controller.enqueue(event("metadata", response));
+            controller.enqueue(event("done", { ok: true }));
+            controller.close();
+          } catch (error) {
+            console.error("[grounded-answer][stream] Error:", error);
+            controller.enqueue(
+              event("error", { error: "Internal server error. Failed to stream grounded answer." })
+            );
+            controller.close();
+          }
+        },
+      });
+
+      return new NextResponse(readable, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    const { verses, entityFacts, retrievalMetadata, source } = await resolveContext();
     const grounded = await generateGroundedAnswer({
       query: query.trim(),
       verses,

@@ -1,4 +1,4 @@
-import { TargetBook } from "../../types/target-book.type"
+import { TargetBook } from "./target-book.type"
 
 export interface AliasConfig {
   alias_to_canonical?: Record<string, string>

@@ -40,6 +40,14 @@ export interface GroundedAnswerResult {
   promptVersion: string;
 }
 
+export interface StreamGroundedAnswerInput {
+  query: string;
+  verses: VerseResult[];
+  entityFacts: EntityFact[];
+  model?: string;
+  onToken: (token: string) => void;
+}
+
 function normalizeLoose(value: string): string {
   return value
     .normalize("NFD")
@@ -130,6 +138,117 @@ export function buildGroundedSystemPrompt(): string {
     "Note : Les données du graphe de connaissances peuvent contenir des bruits ou des relations erronées dues à l'extraction automatique. Priorise toujours le texte des versets et utilise ton bon sens théologique pour ignorer les relations incohérentes (ex : parenté inversée ou relations absurdes).",
     "Retourne un JSON : { \"answer\": string, \"usedReferences\": string[] }",
   ].join(" ");
+}
+
+function buildGroundedStreamingSystemPrompt(): string {
+  return [
+    "Rôle : Assistant biblique universitaire.",
+    "Ta base de connaissances est UNIQUEMENT le Contexte fourni (Écritures + Graphe de connaissances).",
+    "N'utilise aucune connaissance extérieure pour les affirmations factuelles.",
+    "Si le sujet n'est pas présent dans le contexte, réponds exactement : Je ne sais pas d'après les Écritures fournies.",
+    "Pour chaque affirmation factuelle, ajoute des citations inline au format [Livre Chapitre:Verset].",
+    "Ne cite que les références présentes dans le contexte fourni.",
+    "Utilise les alias et relations du graphe pour résoudre les ambiguïtés (ex : Christ = Jésus).",
+    "Formate la réponse en Markdown et mets en gras (**nom**) les entités nommées à leur première apparition.",
+    "Pas de JSON. Retourne uniquement le texte final de la réponse.",
+  ].join(" ");
+}
+
+export async function generateGroundedAnswerStream(input: StreamGroundedAnswerInput): Promise<GroundedAnswerResult> {
+  const model = input.model ?? DEFAULT_MODEL;
+
+  if (isOutOfDomainQuery(input.query)) {
+    return {
+      answer: UNKNOWN_RESPONSE,
+      citations: [],
+      uncertain: true,
+      model,
+      promptVersion: PROMPT_VERSION,
+    };
+  }
+
+  if (!process.env.GITHUB_TOKEN) {
+    return {
+      answer: UNKNOWN_RESPONSE,
+      citations: [],
+      uncertain: true,
+      model,
+      promptVersion: PROMPT_VERSION,
+    };
+  }
+
+  const context = assembleHybridContext(input.verses, input.entityFacts);
+
+  if (!context.references.length) {
+    return {
+      answer: UNKNOWN_RESPONSE,
+      citations: [],
+      uncertain: true,
+      model,
+      promptVersion: PROMPT_VERSION,
+    };
+  }
+
+  const openai = createCopilotClient();
+
+  try {
+    const stream = await openai.chat.completions.create({
+      model,
+      temperature: 0,
+      stream: true,
+      messages: [
+        { role: "system", content: buildGroundedStreamingSystemPrompt() },
+        {
+          role: "user",
+          content: [
+            `Question: ${input.query}`,
+            "",
+            "Context:",
+            context.text,
+          ].join("\n"),
+        },
+      ],
+    });
+
+    let answer = "";
+    for await (const chunk of stream) {
+      const token = chunk.choices[0]?.delta?.content;
+      if (!token) continue;
+      answer += token;
+      input.onToken(token);
+    }
+
+    const cleaned = answer.trim() || UNKNOWN_RESPONSE;
+    const citations = extractCitations(cleaned);
+    const isUncertain = cleaned === UNKNOWN_RESPONSE;
+    const valid = isUncertain || validateCitations(citations, context.references);
+
+    if (!valid) {
+      return {
+        answer: UNKNOWN_RESPONSE,
+        citations: [],
+        uncertain: true,
+        model,
+        promptVersion: PROMPT_VERSION,
+      };
+    }
+
+    return {
+      answer: cleaned,
+      citations,
+      uncertain: isUncertain,
+      model,
+      promptVersion: PROMPT_VERSION,
+    };
+  } catch {
+    return {
+      answer: UNKNOWN_RESPONSE,
+      citations: [],
+      uncertain: true,
+      model,
+      promptVersion: PROMPT_VERSION,
+    };
+  }
 }
 
 export async function generateGroundedAnswer(input: {

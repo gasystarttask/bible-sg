@@ -1,5 +1,5 @@
 import { ObjectId } from "mongodb"
-import { RawEntity, RawRelation } from "../core/interfaces/entity.type";
+import { RawEntity, RawRelation } from "./entity.type";
 
 export type ResolvedEntity = RawEntity & {
   aliases: string[]
