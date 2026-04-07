@@ -190,6 +190,42 @@ function tokenizeQuery(query: string): string[] {
     .filter((token) => token.length >= 3);
 }
 
+function isGenealogyQuery(query: string): boolean {
+  const q = normalizeLoose(query);
+  return /(son of|daughter of|father of|mother of|begat|genealogy|lineage|descendant|fils de|fille de|pere de|mere de|engendra|genealogie|descendance)/i.test(q);
+}
+
+function rerankByQueryOverlap(query: string, merged: RankedVerseResult[]): RankedVerseResult[] {
+  const normalizedQuery = normalizeLoose(query);
+  const stopWords = new Set([
+    "qui", "est", "le", "la", "les", "de", "des", "du", "dans", "sur", "et",
+    "who", "what", "where", "when", "the", "of", "in", "on", "and", "for", "with",
+    "fils", "son", "daughter", "father", "mother",
+  ]);
+
+  const tokens = Array.from(
+    new Set(tokenizeQuery(query).filter((t) => !stopWords.has(t)))
+  );
+
+  if (!tokens.length) return merged;
+
+  const relationCue = /(son|daughter|father|mother|begat|fils|fille|pere|mere|engendra)/i;
+
+  return [...merged]
+    .map((item) => {
+      const haystack = normalizeLoose(`${item.reference} ${item.text}`);
+      const overlap = tokens.reduce((acc, token) => acc + (haystack.includes(token) ? 1 : 0), 0);
+      const relationBoost = relationCue.test(normalizedQuery) && relationCue.test(haystack) ? 1 : 0;
+      const lexicalBoost = overlap * 0.0025 + relationBoost * 0.0015;
+
+      return {
+        ...item,
+        score: item.score + lexicalBoost,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
 function toId(value: unknown): string {
   return value == null ? "" : String(value);
 }
@@ -781,9 +817,12 @@ export class HybridRetriever {
       };
     }
 
+    const vectorSearchK = vectorWeight <= 0.15 ? Math.max(4, k) : k * 2;
+    const graphSearchK = graphWeight >= 0.8 ? Math.max(k + 2, 8) : k * 2;
+
     const [vectorResults, graphResults] = await Promise.all([
-      this.vectorSearch(query, k * 2, filters),
-      this.graphSearch(query, k * 2, filters),
+      vectorWeight <= 0.1 ? Promise.resolve([]) : this.vectorSearch(query, vectorSearchK, filters),
+      graphWeight <= 0.25 ? Promise.resolve([]) : this.graphSearch(query, graphSearchK, filters),
     ]);
 
     const merged = reciprocalRankFusion(
@@ -791,7 +830,8 @@ export class HybridRetriever {
       [vectorWeight, graphWeight]
     );
 
-    const topMerged = merged.filter((item) => item.score >= minScore).slice(0, k);
+    const reranked = isGenealogyQuery(query) ? rerankByQueryOverlap(query, merged) : merged;
+    const topMerged = reranked.filter((item) => item.score >= minScore).slice(0, k);
 
     let mentionedEntitySlugs = Array.from(
       new Set(topMerged.flatMap((v) => v.entitySlugs ?? []).filter(Boolean))
