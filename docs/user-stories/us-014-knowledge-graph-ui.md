@@ -8,9 +8,9 @@
 
 ## 🎯 Acceptance Criteria
 
-- [ ] **Entity Cards:** Display "Entity Chips" (e.g., [Abraham], [Canaan]) found in the current answer.
-- [ ] **Relation Snippets:** Show a small text summary of the graph links (e.g., "Abraham is the spouse of Sarah").
-- [ ] **Graph Navigation:** Clicking an entity chip triggers a new focused search for that entity.
+- [x] **Entity Cards:** Display "Entity Chips" (e.g., [Abraham], [Canaan]) found in the current answer.
+- [x] **Relation Snippets:** Show a small text summary of the graph links (e.g., "Abraham is the spouse of Sarah").
+- [x] **Graph Navigation:** Clicking an entity chip triggers a new focused search for that entity.
 
 ---
 
@@ -30,4 +30,4 @@
 
 **Priority:** Low (Refinement)  
 **Estimation:** 3 Story Points  
-**Status:** 📥 `to-do`
+**Status:** ✅ `done`

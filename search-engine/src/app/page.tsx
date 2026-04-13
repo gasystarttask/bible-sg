@@ -23,6 +23,23 @@ type ChatPart = {
   text?: string;
 };
 
+type EntityRelation = {
+  type: string;
+  targetName: string;
+  targetSlug: string;
+};
+
+type EntityFact = {
+  slug: string;
+  name: string;
+  type: string;
+  relations?: EntityRelation[];
+};
+
+type HybridSearchResponse = {
+  entityFacts?: EntityFact[];
+};
+
 const CITATION_REGEX = /(\[([^\]]+\d+:\d+(?:-\d+)?)\]|\(([^\)]+\d+:\d+(?:-\d+)?)\)|\*\*([^\*]+\d+:\d+(?:-\d+)?)\*\*)/g;
 
 function parseRetryAfterSeconds(value: string | null | undefined): number | null {
@@ -99,6 +116,72 @@ function renderMessageWithCitations(
   return nodes.length ? nodes : [text];
 }
 
+function relationToSnippet(sourceName: string, relationType: string, targetName: string): string {
+  switch (relationType) {
+    case "FATHER_OF":
+      return `${sourceName} is the father of ${targetName}.`;
+    case "MOTHER_OF":
+      return `${sourceName} is the mother of ${targetName}.`;
+    case "SON_OF":
+      return `${sourceName} is the son of ${targetName}.`;
+    case "DAUGHTER_OF":
+      return `${sourceName} is the daughter of ${targetName}.`;
+    case "SPOUSE_OF":
+      return `${sourceName} is the spouse of ${targetName}.`;
+    case "BROTHER_OF":
+      return `${sourceName} is the brother of ${targetName}.`;
+    case "SISTER_OF":
+      return `${sourceName} is the sister of ${targetName}.`;
+    case "TRAVELS_TO":
+      return `${sourceName} travels to ${targetName}.`;
+    case "LOCATED_IN":
+      return `${sourceName} is located in ${targetName}.`;
+    case "FOLLOWER_OF":
+      return `${sourceName} is a follower of ${targetName}.`;
+    case "INTERACTS_WITH":
+      return `${sourceName} interacts with ${targetName}.`;
+    case "EVENT_AT":
+      return `${sourceName} is linked to an event at ${targetName}.`;
+    default: {
+      const normalized = relationType.toLowerCase().split("_").join(" ");
+      return `${sourceName} is related to ${targetName} (${normalized}).`;
+    }
+  }
+}
+
+function buildRelationSnippets(entityFacts: EntityFact[], maxSnippets = 8): string[] {
+  const snippets: string[] = [];
+  const seen = new Set<string>();
+
+  for (const entity of entityFacts) {
+    for (const relation of entity.relations ?? []) {
+      const sourceName = entity.name?.trim();
+      const targetName = relation.targetName?.trim();
+      const relationType = relation.type?.trim();
+
+      if (!sourceName || !targetName || !relationType) {
+        continue;
+      }
+
+      const snippet = relationToSnippet(sourceName, relationType, targetName);
+      const dedupeKey = snippet.toLowerCase();
+
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+
+      seen.add(dedupeKey);
+      snippets.push(snippet);
+
+      if (snippets.length >= maxSnippets) {
+        return snippets;
+      }
+    }
+  }
+
+  return snippets;
+}
+
 export default function Home() {
   const [draft, setDraft] = useState("Qui est Jesus ?");
   const [selectedCitation, setSelectedCitation] = useState<string | null>(null);
@@ -106,6 +189,9 @@ export default function Home() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [entityFacts, setEntityFacts] = useState<EntityFact[]>([]);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState<string | null>(null);
 
   const transport = useMemo(
     () =>
@@ -166,6 +252,34 @@ export default function Home() {
   const isRetrieving = status === "submitted";
   const isStreaming = status === "streaming";
   const canSubmit = useMemo(() => status === "ready" && cooldownSeconds === 0, [cooldownSeconds, status]);
+  const relationSnippets = useMemo(() => buildRelationSnippets(entityFacts), [entityFacts]);
+
+  async function loadGraphPreview(query: string) {
+    setGraphLoading(true);
+    setGraphError(null);
+
+    try {
+      const res = await fetch("/api/hybrid-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? "Impossible de charger le graphe.");
+      }
+
+      const body = (await res.json()) as HybridSearchResponse;
+      setEntityFacts(Array.isArray(body.entityFacts) ? body.entityFacts.slice(0, 10) : []);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Erreur inconnue";
+      setGraphError(message);
+      setEntityFacts([]);
+    } finally {
+      setGraphLoading(false);
+    }
+  }
 
   async function openCitation(reference: string) {
     setSelectedCitation(reference);
@@ -197,7 +311,19 @@ export default function Home() {
     if (!trimmed || !canSubmit) return;
 
     setDraft("");
+    const graphPromise = loadGraphPreview(trimmed);
     await sendMessage({ text: trimmed });
+    await graphPromise;
+  }
+
+  async function onEntityChipClick(entityName: string) {
+    const query = entityName.trim();
+    if (!query || !canSubmit) return;
+
+    setDraft("");
+    const graphPromise = loadGraphPreview(query);
+    await sendMessage({ text: query });
+    await graphPromise;
   }
 
   return (
@@ -336,6 +462,58 @@ export default function Home() {
               ) : null}
             </motion.div>
           ) : null}
+
+          <div className="mt-4 border-t border-stone-200 pt-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Graphe de connaissances</h3>
+
+            {graphLoading ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <div className="h-3 w-24 animate-pulse rounded bg-amber-200" />
+                <div className="mt-2 h-3 w-full animate-pulse rounded bg-amber-100" />
+                <div className="mt-2 h-3 w-5/6 animate-pulse rounded bg-amber-100" />
+              </div>
+            ) : null}
+
+            {graphError ? (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+                {graphError}
+              </p>
+            ) : null}
+
+            {!graphLoading && !graphError && entityFacts.length === 0 ? (
+              <p className="mt-3 text-sm text-stone-500">Aucune entite suggeree pour le moment.</p>
+            ) : null}
+
+            {entityFacts.length > 0 ? (
+              <div className="mt-3">
+                <p className="text-xs uppercase tracking-wide text-stone-500">Entity Chips</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {entityFacts.map((entity) => (
+                    <button
+                      key={entity.slug}
+                      type="button"
+                      disabled={!canSubmit}
+                      onClick={() => onEntityChipClick(entity.name)}
+                      className="rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {entity.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {relationSnippets.length > 0 ? (
+              <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-stone-500">Relation Snippets</p>
+                <ul className="mt-2 space-y-1.5 text-sm text-stone-700">
+                  {relationSnippets.map((snippet) => (
+                    <li key={snippet}>{snippet}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
         </aside>
       </div>
     </main>
