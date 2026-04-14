@@ -48,6 +48,8 @@ describe('US-005 - LLM Extraction Pipeline', () => {
       expect(prompt).toContain('target_type')
       expect(prompt).toContain('justification')
       expect(prompt).toContain('WHAT NOT TO EXTRACT')
+      expect(prompt).toContain('relations directes, explicites')
+      expect(prompt).toContain('généalogie résumée')
       expect(prompt).toContain('JSON valide')
       expect(prompt).toContain('__JSON_START__')
       expect(prompt).toContain('__JSON_END__')
@@ -466,6 +468,155 @@ describe('US-005 - LLM Extraction Pipeline', () => {
       })
     })
 
+    it('filters noisy theological and nonsensical relations from the model output', async () => {
+      const inputPath = path.join(tmpDir, 'processed_bible.json')
+      const outputPath = path.join(tmpDir, 'data', 'raw_graph.json')
+
+      await writeJson(inputPath, [
+        {
+          id: 'b.MAT.1.1',
+          book: 'Matthieu',
+          chapter: 1,
+          verse: 1,
+          text: 'Généalogie de Jésus Christ, fils de David, fils d’Abraham.',
+          metadata: { testament: 'New', version: 'BIBLE(Fr)' }
+        },
+        {
+          id: 'b.MAT.4.18',
+          book: 'Matthieu',
+          chapter: 4,
+          verse: 18,
+          text: 'Comme il marchait le long de la mer de Galilée, il vit deux frères, Simon appelé Pierre, et André.',
+          metadata: { testament: 'New', version: 'BIBLE(Fr)' }
+        }
+      ])
+
+      const llm: LlmClient = {
+        invoke: async () =>
+          JSON.stringify({
+            entities: [
+              {
+                name: 'Jésus',
+                type: 'Person',
+                description: 'Messie',
+                slug: 'jesus',
+                source_verse_id: 'b.MAT.1.1'
+              },
+              {
+                name: 'Simon Pierre',
+                type: 'Person',
+                description: 'Disciple',
+                slug: 'simon-pierre',
+                source_verse_id: 'b.MAT.4.18'
+              },
+              {
+                name: 'Saint Esprit',
+                type: 'Person',
+                description: 'Esprit de Dieu',
+                slug: 'saint-esprit',
+                source_verse_id: 'b.MAT.1.1'
+              },
+              {
+                name: 'sanhédrin',
+                type: 'Person',
+                description: 'Conseil religieux',
+                slug: 'sanhedrin',
+                source_verse_id: 'b.MAT.1.1'
+              },
+              {
+                name: 'Abraham',
+                type: 'Person',
+                description: 'Patriarche',
+                slug: 'abraham',
+                source_verse_id: 'b.MAT.1.1'
+              },
+              {
+                name: 'Melchisédek',
+                type: 'Person',
+                description: 'Roi-sacrificateur',
+                slug: 'melchisedeq',
+                source_verse_id: 'b.MAT.1.1'
+              },
+              {
+                name: 'Juda',
+                type: 'Person',
+                description: 'Patriarche',
+                slug: 'juda',
+                source_verse_id: 'b.MAT.1.1'
+              }
+            ],
+            relations: [
+              {
+                source_slug: 'jesus',
+                relation_type: 'EVENT_AT',
+                target_slug: 'simon-pierre',
+                source_type: 'Person',
+                target_type: 'Person',
+                justification: 'Simon Pierre apparaît dans le récit avec Jésus.',
+                evidence_verse_id: 'b.MAT.4.18'
+              },
+              {
+                source_slug: 'jesus',
+                relation_type: 'SON_OF',
+                target_slug: 'saint-esprit',
+                source_type: 'Person',
+                target_type: 'Person',
+                justification: 'Relation spirituelle déduite.',
+                evidence_verse_id: 'b.MAT.1.1'
+              },
+              {
+                source_slug: 'jesus',
+                relation_type: 'SPOUSE_OF',
+                target_slug: 'sanhedrin',
+                source_type: 'Person',
+                target_type: 'Person',
+                justification: 'Ils sont liés dans le récit.',
+                evidence_verse_id: 'b.MAT.1.1'
+              },
+              {
+                source_slug: 'jesus',
+                relation_type: 'BROTHER_OF',
+                target_slug: 'abraham',
+                source_type: 'Person',
+                target_type: 'Person',
+                justification: 'Jésus est fils d’Abraham dans la généalogie.',
+                evidence_verse_id: 'b.MAT.1.1'
+              },
+              {
+                source_slug: 'jesus',
+                relation_type: 'INTERACTS_WITH',
+                target_slug: 'melchisedeq',
+                source_type: 'Person',
+                target_type: 'Person',
+                justification: 'Parallèle théologique implicite.',
+                evidence_verse_id: 'b.MAT.1.1'
+              },
+              {
+                source_slug: 'jesus',
+                relation_type: 'TRAVELS_TO',
+                target_slug: 'juda',
+                source_type: 'Person',
+                target_type: 'Person',
+                justification: 'Déplacement supposé.',
+                evidence_verse_id: 'b.MAT.1.1'
+              }
+            ]
+          })
+      }
+
+      const result = await runExtractionPipeline({
+        inputPath,
+        outputPath,
+        books: ['MAT'],
+        delayMs: 0,
+        llm,
+        verbose: false
+      })
+
+      expect(result.chapters).toHaveLength(2)
+      expect(result.chapters.flatMap((chapter) => chapter.relations)).toEqual([])
+    })
+
     it('uses schema validator and does not crash on malformed LLM output', async () => {
       const inputPath = path.join(tmpDir, 'processed_bible.json')
       const outputPath = path.join(tmpDir, 'data', 'raw_graph.json')
@@ -586,6 +737,10 @@ describe('US-005 - LLM Extraction Pipeline', () => {
       ).rejects.toThrow(/Rate limit/)
 
       expect(callCount).toBeGreaterThanOrEqual(2)
+
+      const partial = JSON.parse(await readFile(partialPath, 'utf-8')) as RawGraphOutput
+      expect(partial.chapters.length).toBeGreaterThan(0)
+      expect(partial.merged_entities?.length ?? 0).toBeGreaterThanOrEqual(0)
     }, 15000)
 
     it('uses gpt-4o-mini by default', () => {

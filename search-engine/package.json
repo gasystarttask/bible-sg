@@ -10,7 +10,7 @@
     "convert:obsidian": "tsx src/scripts/convert-to-obsidian.ts",
     "merge:graph": "tsx src/scripts/merge-raw-graph.ts",
     "populate:graph": "tsx src/scripts/populate-graph-db.ts",
-    "deduplicate:graph": "tsx src/scripts/deduplication.ts",
+    "deduplicate:graph": "tsx src/scripts/populate-graph-db.ts",
     "lint": "eslint",
     "test": "vitest",
     "test:ui": "vitest --ui",

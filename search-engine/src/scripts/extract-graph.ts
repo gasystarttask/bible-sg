@@ -78,6 +78,21 @@ const IMPORTANT_OBJECT_WHITELIST = new Set<string>([
   'autel'
 ])
 
+const EXTRACTION_SYSTEM_PROMPT = [
+  'Tu extrais uniquement en français.',
+  'Noms bibliques français.',
+  'Descriptions courtes en français.',
+  'Types autorisés: Person, Location, Object, Event.',
+  'Relations AUTORISÉES uniquement: FATHER_OF, MOTHER_OF, SON_OF, DAUGHTER_OF, SPOUSE_OF, BROTHER_OF, SISTER_OF, TRAVELS_TO, LOCATED_IN, FOLLOWER_OF, INTERACTS_WITH, EVENT_AT.',
+  'Chaque relation doit inclure source_type/target_type (Person|Location) et justification.',
+  'Extrais uniquement des relations directes et explicites du texte fourni.',
+  'Ne pas convertir des titres, généalogies résumées, parallèles théologiques ou déductions en relations.',
+  'EVENT_AT doit viser un lieu concret. INTERACTS_WITH exige une interaction verbale ou narrative explicite.',
+  'Ne pas extraire les objets inanimés non pivots (sable, roc, foule, vêtements...).',
+  'Ne pas créer de SPOUSE_OF/relations familiales entre ennemis (ex: Jésus/diable).',
+  'Retourne uniquement un JSON valide.'
+].join(' ')
+
 function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
@@ -275,6 +290,9 @@ export function buildExtractionPrompt(args: {
     '5) Pour chaque relation, fournis: source_type, target_type (Person|Location) + justification.',
     '6) source_type et target_type doivent être Person ou Location uniquement.',
     '7) Pas d\'anglais dans les champs de contenu (sauf constantes relation_type).',
+    '8) Extrais uniquement des relations directes, explicites et localisées dans le texte fourni.',
+    '9) N\'invente jamais de relation théologique, symbolique, typologique ou déduite par culture générale.',
+    '10) Si le texte ne formule pas clairement la relation, ne retourne rien.',
     '',
     'WHAT NOT TO EXTRACT (IMPORTANT):',
     '- Ne PAS extraire les objets inanimés non pivots (sable, bois, vêtements, roc, arbre fruitier).',
@@ -282,6 +300,12 @@ export function buildExtractionPrompt(args: {
     '- Ne PAS créer de relation familiale (SPOUSE_OF, FATHER_OF, etc.) entre ennemis',
     '  ou relations circonstancielles (ex: Jésus et diable).',
     '- Ne PAS utiliser EVENT_AT avec des cibles génériques (sable, foule, multitude).',
+    '- Ne PAS transformer un titre, une typologie, une prophétie ou une généalogie résumée en relation directe.',
+    '- Exemple interdit: "Jésus, fils de David" => ne PAS créer BROTHER_OF/FATHER_OF/SPOUSE_OF avec David ou Abraham.',
+    '- INTERACTS_WITH seulement si le texte montre une interaction directe: parler, répondre, rencontrer, voir, demander.',
+    '- TRAVELS_TO seulement si le déplacement est explicite dans le texte.',
+    '- EVENT_AT seulement si la cible est un lieu concret (ville, pays, montagne, maison, temple).',
+    '- Ne jamais relier Jésus à Saint-Esprit, Abraham, Melchisédek, Saül ou au sanhédrin par une relation familiale ou circonstancielle sans énoncé explicite.',
     '',
     'Validation de direction:',
     '- La justification doit être explicite et cohérente avec la direction.',
@@ -380,7 +404,7 @@ function normalizeEntityType(input: unknown): EntityType | undefined {
   return parsed.success ? parsed.data : undefined
 }
 
-function normalizeRelationType(input: unknown): RelationType {
+function normalizeRelationType(input: unknown): RelationType | undefined {
   const raw = readString(input, '')
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
@@ -469,7 +493,7 @@ function normalizeRelationType(input: unknown): RelationType {
 
   const candidate = aliases[raw] ?? raw
   const parsed = RelationTypeEnum.safeParse(candidate)
-  return parsed.success ? parsed.data : 'EVENT_AT'
+  return parsed.success ? parsed.data : undefined
 }
 
 const KINSHIP_RELATIONS = new Set<string>([
@@ -503,6 +527,42 @@ const GENERIC_EVENT_TARGET_SLUGS = new Set<string>([
   'multitude'
 ])
 
+const ABSTRACT_OR_COLLECTIVE_SLUGS = new Set<string>([
+  'saint-esprit',
+  'esprit-saint',
+  'esprit',
+  'dieu',
+  'eternel',
+  'sanhedrin',
+  'sanhédrin',
+  'pharisiens',
+  'sadduceens',
+  'foule',
+  'multitude',
+  'peuple'
+])
+
+const RELATION_SUPPORT_PATTERNS: Partial<Record<RelationType, RegExp>> = {
+  FATHER_OF: /\b(pere|father|engendra|begat)\b/i,
+  MOTHER_OF: /\b(mere|mother)\b/i,
+  SON_OF: /\b(fils|son)\b/i,
+  DAUGHTER_OF: /\b(fille|daughter)\b/i,
+  SPOUSE_OF: /\b(epoux|epouse|mari|femme|wife|husband|spouse)\b/i,
+  BROTHER_OF: /\b(frere|brother)\b/i,
+  SISTER_OF: /\b(soeur|sister)\b/i,
+  TRAVELS_TO: /\b(alla|aller|va|vient|vint|partit|quitta|descend|descendit|monta|se rendit|se rend|voyagea|went|goes|came|travel)\b/i,
+  LOCATED_IN: /\b(dans|situe|situee|located|region|ville|pays)\b/i,
+  FOLLOWER_OF: /\b(disciple|suivait|suivit|follow|follower)\b/i,
+  INTERACTS_WITH: /\b(parla|parle|dit a|repondit|questionna|rencontra|vit|mentionne|mentionné|avec|spoke|asked|answered|met|encountered)\b/i,
+  EVENT_AT: /\b(lieu|ville|montagne|temple|maison|dans|a|at)\b/i
+}
+
+const INDIRECT_KINSHIP_PATTERNS = [
+  /\b(ancetre|ancestor|descendant|genealog|gen[eé]alog|lignee|lign[eé]e|messianique|titre)\b/i,
+  /\bfils\s+d['’](abraham|david)\b/i,
+  /\bson\s+of\s+(abraham|david)\b/i
+]
+
 function isJesusLike(value: string): boolean {
   const s = slugify(value)
   return s === 'jesus' || s === 'jesus-christ' || s.startsWith('jesus-')
@@ -514,6 +574,10 @@ function isMetaphoricSpouse(value: string): boolean {
 
 function isGenericEventTarget(value: string): boolean {
   return GENERIC_EVENT_TARGET_SLUGS.has(slugify(value))
+}
+
+function isAbstractOrCollectiveEntity(value: string): boolean {
+  return ABSTRACT_OR_COLLECTIVE_SLUGS.has(slugify(value))
 }
 
 function normalizeText(value: string): string {
@@ -553,6 +617,29 @@ function relationDirectionFromJustification(
   return relationType
 }
 
+function hasExplicitRelationSupport(
+  relationType: RelationType,
+  evidenceText: string,
+  justification?: string
+): boolean {
+  const pattern = RELATION_SUPPORT_PATTERNS[relationType]
+  if (!pattern) return true
+
+  const haystack = `${evidenceText} ${justification ?? ''}`.trim()
+  return pattern.test(haystack)
+}
+
+function looksLikeIndirectKinship(
+  relationType: RelationType,
+  evidenceText: string,
+  justification?: string
+): boolean {
+  if (!KINSHIP_RELATIONS.has(relationType)) return false
+
+  const haystack = `${evidenceText} ${justification ?? ''}`.trim()
+  return INDIRECT_KINSHIP_PATTERNS.some((pattern) => pattern.test(haystack))
+}
+
 function isRelevantObjectEntity(entity: RawEntity): boolean {
   if (entity.type !== 'Object') return true
   const s = slugify(entity.slug || entity.name)
@@ -560,7 +647,11 @@ function isRelevantObjectEntity(entity: RawEntity): boolean {
   return !NOISY_OBJECT_SLUGS.has(s)
 }
 
-function sanitizeRelations(entities: RawEntity[], relations: RelationCandidate[]): RawRelation[] {
+function sanitizeRelations(
+  entities: RawEntity[],
+  relations: RelationCandidate[],
+  verseTextById: ReadonlyMap<string, string>
+): RawRelation[] {
   const entityBySlug = new Map<string, RawEntity>()
   for (const entity of entities) entityBySlug.set(entity.slug, entity)
 
@@ -584,6 +675,7 @@ function sanitizeRelations(entities: RawEntity[], relations: RelationCandidate[]
     const targetName = targetEntity.name || relation.target_slug
 
     let relType = relation.relation_type
+    const evidenceText = verseTextById.get(relation.evidence_verse_id) ?? ''
 
     // Existing correction + strategy 3 (directionality by justification)
     if (relType === 'FATHER_OF' && isJesusLike(sourceName) && !isJesusLike(targetName)) {
@@ -602,7 +694,41 @@ function sanitizeRelations(entities: RawEntity[], relations: RelationCandidate[]
       continue
     }
 
-    if (relType === 'EVENT_AT' && isGenericEventTarget(targetName)) {
+    if (
+      KINSHIP_RELATIONS.has(relType) &&
+      (isAbstractOrCollectiveEntity(sourceName) || isAbstractOrCollectiveEntity(targetName))
+    ) {
+      continue
+    }
+
+    if (
+      (relType === 'SPOUSE_OF' || relType === 'BROTHER_OF' || relType === 'SISTER_OF') &&
+      (isAbstractOrCollectiveEntity(sourceName) || isAbstractOrCollectiveEntity(targetName))
+    ) {
+      continue
+    }
+
+    if (relType === 'INTERACTS_WITH' && isAbstractOrCollectiveEntity(targetName)) {
+      continue
+    }
+
+    if (relType === 'EVENT_AT' && (targetEntity.type !== 'Location' || isGenericEventTarget(targetName))) {
+      continue
+    }
+
+    if (relType === 'TRAVELS_TO' && (sourceEntity.type !== 'Person' || targetEntity.type !== 'Location')) {
+      continue
+    }
+
+    if (relType === 'LOCATED_IN' && targetEntity.type !== 'Location') {
+      continue
+    }
+
+    if (!hasExplicitRelationSupport(relType as RelationType, evidenceText, relation.justification)) {
+      continue
+    }
+
+    if (looksLikeIndirectKinship(relType as RelationType, evidenceText, relation.justification)) {
       continue
     }
 
@@ -759,7 +885,8 @@ export function mergeEntities(chapters: ChapterGraph[]): Map<string, RawEntity> 
 
 function normalizeGraphPayload(
   payload: unknown,
-  fallbackVerseId: string
+  fallbackVerseId: string,
+  verseTextById: ReadonlyMap<string, string>
 ): { entities: RawEntity[]; relations: RawRelation[] } {
   if (!isRecord(payload)) return { entities: [], relations: [] }
 
@@ -786,33 +913,37 @@ function normalizeGraphPayload(
   const entityTypeBySlug = new Map<string, EntityType>()
   for (const entity of entities) entityTypeBySlug.set(entity.slug, entity.type)
 
-  const relationCandidates: RelationCandidate[] = relationsRaw
-    .map((item) => {
-      const r = isRecord(item) ? item : {}
+  const relationCandidates: RelationCandidate[] = []
 
-      const source_slug = normalizeSlug(r.source_slug, 'source')
-      const target_slug = normalizeSlug(r.target_slug, 'target')
-      const relation_type = normalizeRelationType(r.relation_type)
+  for (const item of relationsRaw) {
+    const r = isRecord(item) ? item : {}
 
-      const inferredSourceType = entityTypeBySlug.get(source_slug)
-      const inferredTargetType = entityTypeBySlug.get(target_slug)
+    const source_slug = normalizeSlug(r.source_slug, 'source')
+    const target_slug = normalizeSlug(r.target_slug, 'target')
+    const relation_type = normalizeRelationType(r.relation_type)
+    if (!relation_type) continue
 
-      const source_type = normalizeEntityType(r.source_type) ?? inferredSourceType
-      const target_type = normalizeEntityType(r.target_type) ?? inferredTargetType
+    const inferredSourceType = entityTypeBySlug.get(source_slug)
+    const inferredTargetType = entityTypeBySlug.get(target_slug)
 
-      return {
-        source_slug,
-        relation_type,
-        target_slug,
-        source_type,
-        target_type,
-        justification: readString(r.justification, ''),
-        evidence_verse_id: readString(r.evidence_verse_id, fallbackVerseId)
-      }
+    const source_type = normalizeEntityType(r.source_type) ?? inferredSourceType
+    const target_type = normalizeEntityType(r.target_type) ?? inferredTargetType
+    const evidence_verse_id = readString(r.evidence_verse_id, fallbackVerseId)
+
+    if (!source_slug || !target_slug || !evidence_verse_id) continue
+
+    relationCandidates.push({
+      source_slug,
+      relation_type,
+      target_slug,
+      source_type,
+      target_type,
+      justification: readString(r.justification, ''),
+      evidence_verse_id
     })
-    .filter((r) => !!r.source_slug && !!r.target_slug && !!r.evidence_verse_id)
+  }
 
-  const relations = sanitizeRelations(entities, relationCandidates)
+  const relations = sanitizeRelations(entities, relationCandidates, verseTextById)
 
   return {
     entities,
@@ -859,7 +990,8 @@ export async function extractChapterGraph(
     }
   }
 
-  const normalized = normalizeGraphPayload(parsed, fallbackVerse)
+  const verseTextById = new Map(chapter.verses.map((verse) => [verse.verse_id, verse.text]))
+  const normalized = normalizeGraphPayload(parsed, fallbackVerse, verseTextById)
   const deduped = dedupeEntitiesBySlug(normalized)
   const validated = validateGraph(deduped)
 
@@ -933,6 +1065,7 @@ export async function runExtractionPipeline(options: RunOptions): Promise<RawGra
 
       try {
         const chapterGraph = await extractChapterGraph(chapter, llm)
+        chapters.push(chapterGraph)
 
         if (verbose) {
           const ms = Date.now() - start
@@ -973,8 +1106,7 @@ export async function runExtractionPipeline(options: RunOptions): Promise<RawGra
     })
   )
 
-  const results = await Promise.all(tasks)
-  chapters.push(...results.filter((ch): ch is ChapterGraph => ch !== null))
+  await Promise.all(tasks)
 
   const output: RawGraphOutput = {
     generated_at: new Date().toISOString(),
@@ -996,6 +1128,37 @@ export async function runExtractionPipeline(options: RunOptions): Promise<RawGra
   return output
 }
 
+export function createLlamaCppClient(model = 'Llama-3.2'): LlmClient {
+const llamaModel = new ChatOpenAI(model, {
+    temperature: 0,
+    openAIApiKey: 'not-needed',
+    configuration: {
+      baseURL: 'http://localhost:8080/v1',
+      timeout: 120000,
+      defaultHeaders: {
+        'Content-Type': 'application/json'
+      }
+    }
+  } as Omit<ChatOpenAIFields, 'model'>)
+
+  return {
+    async invoke(prompt: string): Promise<string> {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stream = await (llamaModel as any).stream([
+        new SystemMessage(EXTRACTION_SYSTEM_PROMPT),
+        new HumanMessage(prompt)
+      ]);
+
+      let fullContent = "";
+      for await (const chunk of stream) {
+        fullContent += chunk.content;
+        // Ici, tu pourrais déjà envoyer les morceaux au frontend si besoin
+      }
+      return fullContent;
+    }
+  }
+}
+
 export function createCopilotLlmClient(githubToken: string, model = 'gpt-4o'): LlmClient {
   const copilotModel = new ChatOpenAI(model, {
     temperature: 0,
@@ -1015,19 +1178,7 @@ export function createCopilotLlmClient(githubToken: string, model = 'gpt-4o'): L
     async invoke(prompt: string): Promise<string> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const response = await (copilotModel as any).invoke([
-        new SystemMessage(
-          [
-            'Tu extrais uniquement en français.',
-            'Noms bibliques français.',
-            'Descriptions courtes en français.',
-            'Types autorisés: Person, Location, Object, Event.',
-            'Relations AUTORISÉES uniquement: FATHER_OF, MOTHER_OF, SON_OF, DAUGHTER_OF, SPOUSE_OF, BROTHER_OF, SISTER_OF, TRAVELS_TO, LOCATED_IN, FOLLOWER_OF, INTERACTS_WITH, EVENT_AT.',
-            'Chaque relation doit inclure source_type/target_type (Person|Location) et justification.',
-            'Ne pas extraire les objets inanimés non pivots (sable, roc, foule, vêtements...).',
-            'Ne pas créer de SPOUSE_OF/relations familiales entre ennemis (ex: Jésus/diable).',
-            'Retourne uniquement un JSON valide.'
-          ].join(' ')
-        ),
+        new SystemMessage(EXTRACTION_SYSTEM_PROMPT),
         new HumanMessage(prompt)
       ])
 
@@ -1064,7 +1215,7 @@ export async function main(): Promise<void> {
     console.log(`[extract-graph] config: model=${model}, delayMs=${delayMs}ms`)
   }
 
-  const llm = createCopilotLlmClient(apiKey, model)
+  const llm = createCopilotLlmClient(apiKey, model);
 
   const result = await runExtractionPipeline({
     inputPath,
