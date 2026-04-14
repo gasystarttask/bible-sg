@@ -28,17 +28,17 @@ This roadmap outlines the development of a semantic search and chat engine for t
 ## 🧠 Phase 3: RAG Orchestration & AI Logic
 *Focus: Creating the "Brain" using LangChain and Vercel AI SDK.*
 
-- 📥 **Hybrid Retriever** (Combining Vector Search + Graph Traversal) `to-do`
-- 📥 **Agentic Router** (Logic to decide between semantic search or genealogy graph) `to-do`
-- 📥 **Context Injection** (System prompts for theological accuracy and sourcing) `to-do`
-- 📥 **Streaming API Handlers** (Using `LangChainAdapter` for real-time UI) `to-do`
+- ✅ **Hybrid Retriever** (Combining Vector Search + Graph Traversal) `done` — Adaptive fanout, RRF fusion, entity enrichment
+- ✅ **Agentic Router** (US-009: Logic to decide between semantic search or genealogy graph) `done` — Intent classification, kinship fast profile, French LSG support
+- ✅ **Context Injection** (US-010: System prompts for theological accuracy and sourcing) `done` — Grounded answers, citation validation, anti-hallucination
+- ✅ **Streaming API Handlers** (US-011: Real-time token streaming with SSE) `done` — Native NextResponse stream + GitHub Models (OpenAI SDK)
 
 ---
 
 ## 🎨 Phase 4: Frontend & User Experience
 *Focus: A clean, scholarly, and responsive chat interface.*
 
-- 📥 **Chat Interface** (Vercel AI SDK `useChat` integration) `to-do`
+- ✅ **Chat Interface** (Streaming support with incremental rendering) `done` — SSE UI + loading skeleton
 - 📥 **Citation System** (Clickable verse references linked to source text) `to-do`
 - 📥 **Knowledge Graph Preview** (UI components to show "Related Entities") `to-do`
 - 📥 **Performance Optimization** (Edge runtime & Postgres indexing) `to-do`
