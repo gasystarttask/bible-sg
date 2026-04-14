@@ -42,6 +42,15 @@ type HybridSearchResponse = {
 
 const CITATION_REGEX = /(\[([^\]]+\d+:\d+(?:-\d+)?)\]|\(([^\)]+\d+:\d+(?:-\d+)?)\)|\*\*([^\*]+\d+:\d+(?:-\d+)?)\*\*)/g;
 
+function splitCitationReferences(citation: string): string[] {
+  const refs = citation
+    .split(/\s*;\s*/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && /\d+:\d+/.test(item));
+
+  return refs.length > 0 ? refs : [citation.trim()];
+}
+
 function parseRetryAfterSeconds(value: string | null | undefined): number | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -91,18 +100,23 @@ function renderMessageWithCitations(
       index += 1;
     }
 
-    // Display text: use the captured reference (without delimiters)
-    const displayText = captured.startsWith("**") ? captured.slice(2, -2) : captured;
+    const references = splitCitationReferences(captured);
 
     nodes.push(
-      <button
-        key={`cite-${captured}-${index}`}
-        type="button"
-        onClick={() => onCitationClick(captured)}
-        className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
-      >
-        {displayText}
-      </button>
+      <Fragment key={`cite-group-${captured}-${index}`}>
+        {references.map((reference, refIndex) => (
+          <Fragment key={`cite-item-${reference}-${refIndex}`}>
+            {refIndex > 0 ? "; " : null}
+            <button
+              type="button"
+              onClick={() => onCitationClick(reference)}
+              className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+            >
+              {reference}
+            </button>
+          </Fragment>
+        ))}
+      </Fragment>
     );
 
     index += 1;

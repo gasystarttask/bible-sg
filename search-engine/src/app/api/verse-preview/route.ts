@@ -16,8 +16,36 @@ type VerseDoc = {
 
 const COLLECTION_NAME = process.env.MONGODB_COLLECTION_NAME ?? "verses";
 
+const VERSE_PROJECTION = {
+  _id: 0,
+  id: 1,
+  reference: 1,
+  book: 1,
+  chapter: 1,
+  verse: 1,
+  text: 1,
+  metadata: 1,
+} as const;
+
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function splitReferenceCandidates(reference: string): string[] {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+
+  for (const part of reference.split(/\s*;\s*/)) {
+    const normalized = part.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    candidates.push(normalized);
+  }
+
+  return candidates.length > 0 ? candidates : [reference.trim()];
 }
 
 function parseReference(reference: string): { book: string; chapter: number; verse: number } | null {
@@ -47,37 +75,48 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const db = await getDb();
     const verses = db.collection<VerseDoc>(COLLECTION_NAME);
 
-    const parsed = parseReference(reference);
-    const regex = new RegExp(`^${escapeRegex(reference)}$`, "i");
+    const candidates = splitReferenceCandidates(reference);
+    const parsed = parseReference(candidates[0]);
 
-    const query = parsed
-      ? {
-          $or: [
-            { id: regex },
-            { reference: regex },
-            {
-              book: { $regex: new RegExp(`^${escapeRegex(parsed.book)}$`, "i") },
-              chapter: parsed.chapter,
-              verse: parsed.verse,
-            },
-          ],
-        }
-      : {
-          $or: [{ id: regex }, { reference: regex }],
-        };
+    let doc: VerseDoc | null = null;
 
-    const doc = await verses.findOne(query, {
-      projection: {
-        _id: 0,
-        id: 1,
-        reference: 1,
-        book: 1,
-        chapter: 1,
-        verse: 1,
-        text: 1,
-        metadata: 1,
-      },
-    });
+    // Fast path 1: indexed compound lookup { book, chapter, verse }
+    if (parsed) {
+      doc = await verses.findOne(
+        { book: parsed.book, chapter: parsed.chapter, verse: parsed.verse },
+        { projection: VERSE_PROJECTION }
+      );
+    }
+
+    // Fast path 2: indexed exact match on reference / id fields
+    if (!doc?.text) {
+      for (const candidate of candidates) {
+        doc = await verses.findOne(
+          { $or: [{ reference: candidate }, { id: candidate }] },
+          { projection: VERSE_PROJECTION }
+        );
+        if (doc?.text) break;
+      }
+    }
+
+    // Slow fallback: case-insensitive regex (handles casing / diacritic variants)
+    if (!doc?.text) {
+      const regexes = candidates.map((c) => new RegExp(`^${escapeRegex(c)}$`, "i"));
+      const idOrRefClauses = regexes.flatMap((rx) => [{ id: rx }, { reference: rx }]);
+      const fallbackQuery = parsed
+        ? {
+            $or: [
+              ...idOrRefClauses,
+              {
+                book: { $regex: new RegExp(`^${escapeRegex(parsed.book)}$`, "i") },
+                chapter: parsed.chapter,
+                verse: parsed.verse,
+              },
+            ],
+          }
+        : { $or: idOrRefClauses };
+      doc = await verses.findOne(fallbackQuery, { projection: VERSE_PROJECTION });
+    }
 
     if (!doc?.text) {
       return NextResponse.json({ error: "Verse not found." }, { status: 404 });
