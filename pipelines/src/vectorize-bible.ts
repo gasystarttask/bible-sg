@@ -24,7 +24,7 @@ interface VerseWithEmbedding extends Verse {
 // --- Configuration ---
 
 const CONFIG = {
-  jsonInputPath: path.resolve(__dirname, "../../../data/processed_bible.json"),
+  jsonInputPath: path.resolve(__dirname, "../../data/processed_bible.json"),
   mongodbUri: process.env.DATABASE_URL || "mongodb://localhost:27017",
   openaiApiKey: process.env.OPENAI_API_KEY,
   databaseName: "bible_sg",

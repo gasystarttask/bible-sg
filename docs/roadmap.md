@@ -39,8 +39,8 @@ This roadmap outlines the development of a semantic search and chat engine for t
 *Focus: A clean, scholarly, and responsive chat interface.*
 
 - ✅ **Chat Interface** (Streaming support with incremental rendering) `done` — SSE UI + loading skeleton
-- 📥 **Citation System** (Clickable verse references linked to source text) `to-do`
-- 📥 **Knowledge Graph Preview** (UI components to show "Related Entities") `to-do`
+- ✅ **Citation System** (Clickable verse references linked to source text) `done` — Interactive citations with verse preview
+- ✅ **Knowledge Graph Preview** (UI components to show "Related Entities") `done` — Entity chips, relation snippets, focused follow-up search
 - 📥 **Performance Optimization** (Edge runtime & Postgres indexing) `to-do`
 
 ---

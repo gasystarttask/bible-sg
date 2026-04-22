@@ -1,0 +1,29 @@
+services:
+  documentdb:
+    image: ghcr.io/documentdb/documentdb/documentdb-local:latest
+    container_name: docdb
+    ports:
+      - "10260:10260"
+    environment:
+      - USERNAME=admin
+      - PASSWORD=password
+      - SKIP_INIT_DATA=true
+      - INIT_DATA_PATH=/init_doc_db.d
+    volumes:
+      - docdb-data:/docdb-data
+      - ./scripts:/init_doc_db.d
+  bible-chat-scholar:
+    image: ghcr.io/gasystarttask/bible-chat-scholar:v1.0.0
+    depends_on:
+      - documentdb
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-bible_sg}
+      MONGODB_COLLECTION_NAME: ${MONGODB_COLLECTION_NAME:-verses}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      COPILOTE_MODEL: ${COPILOTE_MODEL:-gpt-4o-mini}
+volumes:
+  docdb-data: {}
