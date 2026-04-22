@@ -1,6 +1,6 @@
-# Bible SG
+# Bible Chat Scholar
 
-Bible SG is a proof-of-concept Bible AI engine using semantic search (vector embeddings) and a roadmap toward RAG + knowledge graph capabilities.
+Bible Chat Scholar is a ~~proof-of-concept~~ Bible AI engine using semantic search (vector embeddings) and a roadmap toward RAG + knowledge graph capabilities.
 
 ## What it includes
 
