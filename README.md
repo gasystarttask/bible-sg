@@ -9,6 +9,10 @@ Bible Chat Scholar is a ~~proof-of-concept~~ Bible AI engine using semantic sear
 - Semantic Search API in Next.js
 - Foundation for hybrid retrieval (vector + graph)
 
+## Architecture diagram
+
+![Bible Chat Scholar Architecture](./docs/images/architecture-en.png)
+
 ## Tech stack
 
 - Next.js (App Router, TypeScript)

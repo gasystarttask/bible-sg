@@ -68,6 +68,23 @@ This will:
 - Dimensions: 1536 floats per verse
 - Indexed for fast semantic similarity search
 
+## Check if data is persisted
+To verify data is persisted in the database, connect to MongoDB using mongosh:
+
+```bash
+docker exec -it <container-name> mongosh 'mongodb://admin:password@documentdb:10260/?directConnection=true&tls=true&tlsAllowInvalidCertificates=true'
+```
+
+Once connected, run:
+
+```javascript
+use bible_sg
+db.verses.countDocuments()
+db.verses.findOne()
+```
+
+This will show the total number of verses ingested and display a sample document with its embedding vector.
+
 ## Setup Vitest for Testing
 
 To set up Vitest in the search-engine app:
