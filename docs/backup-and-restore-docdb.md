@@ -26,7 +26,10 @@ mongorestore --version
 ```bash
 mkdir -p ./data/backup
 mongodump \
-	--uri="mongodb://admin:password@localhost:10260/?directConnection=true&tls=true&tlsAllowInvalidCertificates=true" \
+	--uri="mongodb://admin:password@localhost:10260/?directConnection=true" \
+	--ssl \
+	--sslAllowInvalidCertificates \
+	--sslAllowInvalidHostnames \
 	--db=bible_sg \
 	--out=./data/backup
 ```
@@ -37,7 +40,10 @@ Output will be BSON files in `./data/backup/bible_sg`.
 
 ```bash
 mongorestore \
-	--uri="mongodb://admin:password@localhost:10260/?directConnection=true&tls=true&tlsAllowInvalidCertificates=true" \
+	--uri="mongodb://admin:password@localhost:10260/?directConnection=true" \
+	--ssl \
+	--sslAllowInvalidCertificates \
+	--sslAllowInvalidHostnames \
 	--db=bible_sg \
 	--drop \
 	./data/backup/bible_sg
@@ -53,10 +59,16 @@ Use this when restoring automatically at container startup.
 #!/usr/bin/env bash
 set -euo pipefail
 
-MONGO_URI="mongodb://admin:password@documentdb:10260/?directConnection=true&tls=true&tlsAllowInvalidCertificates=true"
+MONGO_URI="mongodb://admin:password@documentdb:10260/?directConnection=true"
 BACKUP_PATH="/docker-entrypoint-initdb.d/backup/bible_sg"
 
-mongorestore --uri="$MONGO_URI" --db=bible_sg --drop "$BACKUP_PATH"
+mongorestore \
+	--uri="$MONGO_URI" \
+	--ssl \
+	--sslAllowInvalidCertificates \
+	--sslAllowInvalidHostnames \
+	--db=bible_sg \
+	--drop "$BACKUP_PATH"
 echo "Restore completed"
 ```
 
