@@ -13,7 +13,8 @@ services:
       - docdb-data:/docdb-data
       - ./scripts:/init_doc_db.d
   bible-chat-scholar:
-    image: ghcr.io/gasystarttask/bible-chat-scholar:v1.0.0
+    image: ghcr.io/gasystarttask/bible-chat-scholar:v1.0.1
+    container_name: bible_chat_scholar
     depends_on:
       - documentdb
     ports:
