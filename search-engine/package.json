@@ -11,6 +11,7 @@
     "merge:graph": "tsx src/scripts/merge-raw-graph.ts",
     "populate:graph": "tsx src/scripts/populate-graph-db.ts",
     "deduplicate:graph": "tsx src/scripts/populate-graph-db.ts",
+    "generate:openapi": "tsx src/scripts/generate-openapi.ts",
     "lint": "eslint",
     "test": "vitest",
     "test:ui": "vitest --ui",
