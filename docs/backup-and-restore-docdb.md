@@ -39,6 +39,7 @@ Output will be BSON files in `./data/backup/bible_sg`.
 ### 3) Restore (mongorestore)
 
 ```bash
+### OLD version ###
 mongorestore \
 	--uri="mongodb://admin:password@localhost:10260/?directConnection=true" \
 	--ssl \
@@ -47,6 +48,14 @@ mongorestore \
 	--db=bible_sg \
 	--drop \
 	./data/backup/bible_sg
+
+### NEW version ###
+mongorestore \
+  --uri="mongodb://admin:password@localhost:10260/?directConnection=true&tls=true" \
+  --tlsInsecure \
+  --db=bible_sg \
+  --drop \
+  "../data/backup/bible_sg/"
 ```
 
 `--drop` removes existing collections before restore.
