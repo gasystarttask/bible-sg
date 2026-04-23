@@ -191,3 +191,4 @@ dist
 ### Raw Data ###
 **/raw*
 **/data
+*.tar.*
