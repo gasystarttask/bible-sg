@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createOpenAI } from "@ai-sdk/openai";
-import { streamText } from "ai";
+import { createUIMessageStream, createUIMessageStreamResponse, streamText } from "ai";
 import { HybridRetriever } from "@search/lib/hybrid-retriever";
 import { getDb } from "@search/lib/mongodb";
 import { rateLimit } from "@search/lib/rate-limit";
@@ -58,6 +58,25 @@ type UpstreamErrorLike = {
   lastError?: UpstreamErrorLike;
   errors?: UpstreamErrorLike[];
 };
+
+function createStaticAssistantResponse(text: string): Response {
+  const stream = createUIMessageStream({
+    execute: ({ writer }) => {
+      const textId = "unknown-response";
+
+      writer.write({ type: "text-start", id: textId });
+      writer.write({ type: "text-delta", id: textId, delta: text });
+      writer.write({ type: "text-end", id: textId });
+    },
+  });
+
+  return createUIMessageStreamResponse({
+    stream,
+    headers: {
+      "Cache-Control": "no-cache, no-transform",
+    },
+  });
+}
 
 function extractMessageText(message: ChatMessage): string {
   if (typeof message.content === "string") {
@@ -164,10 +183,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   if (isOutOfDomainQuery(query)) {
-    return new NextResponse(UNKNOWN_RESPONSE, {
-      status: 200,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
+    return createStaticAssistantResponse(UNKNOWN_RESPONSE);
   }
 
   try {
@@ -185,10 +201,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     const context = assembleHybridContext(retrievalResult.verses, retrievalResult.entityFacts);
     if (!context.references.length) {
-      return new NextResponse(UNKNOWN_RESPONSE, {
-        status: 200,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
+      return createStaticAssistantResponse(UNKNOWN_RESPONSE);
     }
 
     const result = streamText({
